@@ -1,0 +1,24 @@
+{
+	"name": "@onewayfunction/light-client-browser-example",
+	"version": "0.0.1",
+	"private": true,
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build",
+		"preview": "vite preview"
+	},
+	"exports": {
+		".": {
+			"import": "./dist/index.mjs",
+			"require": "./dist/index.js"
+		}
+	},
+	"dependencies": {
+		"cid-accumulator-client": "file:../cid-accumulator-client"
+	},
+	"devDependencies": {
+		"typescript": "^5.0.0",
+		"vite": "^6.3.5"
+	},
+	"license": "MIT"
+}

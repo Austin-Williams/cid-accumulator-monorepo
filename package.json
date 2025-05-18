@@ -1,0 +1,36 @@
+{
+	"name": "cid-accumulator-singleton",
+	"private": true,
+	"workspaces": [
+		"packages/*"
+	],
+	"version": "0.0.1",
+	"description": "A public goods contract and universal js/ts code for interacting with it.",
+	"main": "index.js",
+	"directories": {
+		"lib": "lib",
+		"test": "test"
+	},
+	"scripts": {
+		"test": "echo \"No tests yet\" && exit 0"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/Austin-Williams/cid-accumulator-singleton.git"
+	},
+	"keywords": [
+		"ethereum",
+		"ipfs",
+		"cid",
+		"accumulator"
+	],
+	"author": "onewayfunction",
+	"license": "MIT",
+	"bugs": {
+		"url": "https://github.com/Austin-Williams/cid-accumulator-singleton/issues"
+	},
+	"homepage": "https://github.com/Austin-Williams/cid-accumulator-singleton#readme",
+	"devDependencies": {
+		"prettier": "^2.8.8"
+	}
+}

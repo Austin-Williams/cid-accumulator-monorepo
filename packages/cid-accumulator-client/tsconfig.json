@@ -1,0 +1,38 @@
+{
+	"compilerOptions": {
+		"module": "esnext",
+		"target": "es2020",
+		"moduleResolution": "node",
+		"esModuleInterop": true,
+		"allowSyntheticDefaultImports": true,
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"allowImportingTsExtensions": false,
+		"emitDeclarationOnly": false,
+		"noEmitOnError": true,
+		"sourceMap": true,
+		"inlineSources": true,
+		"declaration": true,
+		"declarationMap": true,
+		"composite": true,
+		"incremental": true,
+		"noEmit": false,
+		"strict": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noImplicitReturns": true,
+		"noFallthroughCasesInSwitch": true,
+		"experimentalDecorators": true,
+		"allowJs": false,
+		"checkJs": false,
+		"skipLibCheck": true,
+		"rootDir": "source",
+		"outDir": "dist",
+		"types": [
+			"node"
+		]
+	},
+	"include": [
+		"source/**/*"
+	]
+}
