@@ -90,6 +90,7 @@ export class PinningService implements LifecycleComponent {
 		} catch (error) {
 			this.logger.error(`Error in parallel account tracking: ${error instanceof Error ? error.message : String(error)}`)
 		}
+		if (!this.isRunning) return
 
 		// Subscribe to new accounts
 		this.unsubscribeFunctions.push(
@@ -104,7 +105,7 @@ export class PinningService implements LifecycleComponent {
 
 		//// start periodically sanity checking that local root CIDs match on-chain root CIDs
 		this.logger.log(`Starting periodic sanity check with interval of ${this.syncCheckIntervalMs}ms`)
-		this.startPeriodicSanityCheck()
+		await this.startPeriodicSanityCheck()
 	}
 
 	/**
@@ -118,9 +119,10 @@ export class PinningService implements LifecycleComponent {
 		this.isRunning = false
 		this.logger.log("Stopping PinningService")
 		this.stopPeriodicSanityCheck()
-		this.unsubscribeFunctions.forEach((fn) => fn())
+		this.unsubscribeFunctions.splice(0).forEach((fn) => fn())
 		this.ipfsPinner.stop()
 		this.mmrs.clear()
+		this.mmrSyncing.clear()
 	}
 
 	/**
@@ -136,21 +138,20 @@ export class PinningService implements LifecycleComponent {
 			this.logger.log("PinningService is not running, skipping trackNewAccount")
 			return
 		}
-		// skip if we already know about this account
-		if (this.mmrs.has(account.toString())) return
-		// else initialize the new account with an MMR
-		this.mmrs.set(account.toString(), new MerkleMountainRange())
-		this.mmrSyncing.set(account.toString(), false)
+		if (!this.mmrs.has(account.toString())) {
+			const dataClient = this.dataClientManager.getOrCreateDataClient(account)
+			this.mmrs.set(account.toString(), new MerkleMountainRange())
 
-		const dataClient = this.dataClientManager.getOrCreateDataClient(account)
-		if (!dataClient.completedInitialSync && !dataClient.syncing) await dataClient.sync()
+			// Keep receiving events even if the initial sync or pin attempt fails.
+			this.unsubscribeFunctions.push(
+				dataClient.subscribe((record: LeafRecord) => {
+					this.pinAllNotYetPinnedCIDsForAccount(record.account).catch((error) => {
+						this.logger.error(`Error pinning new leaf for account ${record.account}: ${error}`)
+					})
+				})
+			)
+		}
 		await this.pinAllNotYetPinnedCIDsForAccount(account)
-
-		this.unsubscribeFunctions.push(
-			dataClient.subscribe((record: LeafRecord) => {
-				this.pinAllNotYetPinnedCIDsForAccount(record.account)
-			})
-		)
 	}
 
 	private async pinAllNotYetPinnedCIDsForAccount(account: EthereumAddress): Promise<void> {
@@ -159,22 +160,25 @@ export class PinningService implements LifecycleComponent {
 			return
 		}
 
-		if (this.mmrSyncing.get(account.toString())) {
+		const accountKey = account.toString()
+		const mmr = this.validateAndGetMMR(account)
+		if (this.mmrSyncing.get(accountKey)) {
 			this.logger.log(`Account ${account.toString()} is already syncing MMR, skipping pinAllNotYetPinnedCIDsForAccount`)
 			return
-		} else {
-			this.mmrSyncing.set(account.toString(), true)
 		}
+		this.mmrSyncing.set(accountKey, true)
 
-		const mmr = this.validateAndGetMMR(account)
-		const dataClient = await this.validateAndGetDataClient(account)
-		const highestInDb = await dataClient.getHighestIndex()
-
-		for (let i = mmr.leafCount; i <= highestInDb; i++) {
-			await this.processLeafIndex(account, mmr, i)
+		try {
+			const dataClient = await this.validateAndGetDataClient(account)
+			const highestInDb = await dataClient.getHighestIndex()
+			for (let i = mmr.leafCount; i <= highestInDb; i++) {
+				if (!this.isRunning || this.mmrs.get(accountKey) !== mmr) return
+				await this.processLeafIndex(account, mmr, i)
+			}
+		} finally {
+			// A stopped/restarted account may already have a different pin attempt running.
+			if (this.mmrs.get(accountKey) === mmr) this.mmrSyncing.delete(accountKey)
 		}
-
-		this.mmrSyncing.set(account.toString(), false)
 	}
 
 	/**
@@ -206,9 +210,10 @@ export class PinningService implements LifecycleComponent {
 	/**
 	 * Processes a single leaf index for an account
 	 * - Gets the payload from the DB
-	 * - Appends it to the MMR (which returns the trail)
+	 * - Prepares the next MMR state without advancing pinning progress
 	 * - Stores the payload CID, rootCID, and trail in the DB
 	 * - Pins the payloadCID and the trail
+	 * - Advances the live MMR only after every pin succeeds
 	 *
 	 * @param account The account address
 	 * @param mmr The MerkleMountainRange for the account
@@ -218,11 +223,17 @@ export class PinningService implements LifecycleComponent {
 		// Get the payload data
 		const payloadData = await this.getPayloadData(account, leafIndex)
 
-		// Append to MMR and store metadata
-		const trail = await this.appendToMMRAndStoreMetadata(account, mmr, leafIndex, payloadData)
+		const candidate = new MerkleMountainRange()
+		candidate.peaks = [...mmr.peaks]
+		candidate.leafCount = mmr.leafCount
+		const trail = await this.appendToMMRAndStoreMetadata(account, candidate, leafIndex, payloadData)
 
 		// Pin to IPFS
 		await this.pinTrailToIPFS(trail, account)
+		if (!this.isRunning || this.mmrs.get(account.toString()) !== mmr) return
+
+		// Apply the append and notify live MMR subscribers only after successful pinning.
+		await mmr.addLeafWithTrail(leafIndex, payloadData)
 	}
 
 	/**
@@ -303,26 +314,21 @@ export class PinningService implements LifecycleComponent {
 		try {
 			this.logger.log("Starting periodic check of local MMR root CIDs vs on-chain root CIDs")
 			// For all accounts in mmrs, verify the root CID
-			for (const account of this.mmrs.keys()) {
-				this.verifyRootCIDs(EthereumAddress.fromString(account))
-					.then((result) => {
-						if (!result) {
+			await Promise.all(
+				Array.from(this.mmrs.keys(), async (account) => {
+					try {
+						const address = EthereumAddress.fromString(account)
+						if (!(await this.verifyRootCIDs(address))) {
 							this.logger.warn(`Root CID verification failed for account ${account}. Syncing the local MMR...`)
-							this.pinAllNotYetPinnedCIDsForAccount(EthereumAddress.fromString(account)).catch((error) => {
-								this.logger.error(
-									`Error syncing MMR for account ${account}: ${error instanceof Error ? error.message : String(error)}`
-								)
-							})
+							await this.pinAllNotYetPinnedCIDsForAccount(address)
 						}
-					})
-					.catch((error) => {
+					} catch (error) {
 						this.logger.error(
-							`Error verifying root CID for account ${account}: ${
-								error instanceof Error ? error.message : String(error)
-							}`
+							`Error syncing MMR for account ${account}: ${error instanceof Error ? error.message : String(error)}`
 						)
-					})
-			}
+					}
+				})
+			)
 		} catch (error) {
 			this.logger.error(`Error during periodic sanity check: ${error instanceof Error ? error.message : String(error)}`)
 		}
@@ -339,6 +345,7 @@ export class PinningService implements LifecycleComponent {
 		}
 		// Run it once right away
 		await this.sanityCheck()
+		if (!this.isRunning) return
 
 		// Set up a new interval
 		this.syncCheckInterval = setInterval(this.sanityCheck.bind(this), this.syncCheckIntervalMs)
