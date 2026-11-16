@@ -13,9 +13,12 @@ library StorageLayoutLib {
 
 	/// @dev Returns the storage pointer to Layout for a given account.
 	function layout(address account) internal pure returns (Layout storage l) {
-		bytes32 slot = keccak256(abi.encodePacked(account, STORAGE_SLOT));
-		assembly {
-			l.slot := slot
+		bytes32 namespace = STORAGE_SLOT;
+		assembly ("memory-safe") {
+			// Pack the 20-byte address and 32-byte namespace into scratch memory.
+			mstore(0, shl(96, account))
+			mstore(20, namespace)
+			l.slot := keccak256(0, 52)
 		}
 	}
 }
