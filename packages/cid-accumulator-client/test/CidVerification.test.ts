@@ -15,7 +15,8 @@ async function fixture(t: TestContext, remotePin = false) {
 	const resolver = new IpfsResolver(storage, defaultLightClientIpfsResolverConfig)
 	const pinner = new IpfsPinner(storage, {
 		...defaultIpfsPinnerConfig,
-		baseUrl: "https://ipfs.example.test/api/v0",
+		baseUrl:
+			"https://ipfs.example.test/proxy/api/v0/?token=a%2Bb%2Fc%3D&pin=false&arg=stale-cid&service=stale-service&status=failed",
 		remotePin,
 		remotePinningServiceRateLimiterOptions: { intervalMs: 0, maxRetries: 2, baseDelay: 0, capDelay: 0 },
 	})
@@ -81,16 +82,16 @@ describe("CID verification before reading or pinning blocks", { concurrency: fal
 		f.fetch.mock.mockImplementation(async (input) => {
 			const url = new URL(input instanceof Request ? input.url : input.toString())
 			switch (url.pathname) {
-				case "/api/v0/block/put":
+				case "/proxy/api/v0/block/put":
 					return Response.json({ Key: localCID })
-				case "/api/v0/pin/remote/service/ls":
+				case "/proxy/api/v0/pin/remote/service/ls":
 					return Response.json({ RemoteServices: [{ Service: "test-pinner" }] })
-				case "/api/v0/pin/remote/ls":
+				case "/proxy/api/v0/pin/remote/ls":
 					return Response.json({})
-				case "/api/v0/pin/remote/add":
+				case "/proxy/api/v0/pin/remote/add":
 					remoteAdds++
-					assert.equal(url.searchParams.get("arg"), localCID)
-					assert.equal(url.searchParams.get("service"), "test-pinner")
+					assert.deepEqual(url.searchParams.getAll("arg"), [localCID])
+					assert.deepEqual(url.searchParams.getAll("service"), ["test-pinner"])
 					return remoteAdds === 1 || !remoteAvailable
 						? new Response("Temporarily unavailable", { status: 503 })
 						: Response.json({ Cid: localCID, Status: "queued" })
@@ -105,11 +106,21 @@ describe("CID verification before reading or pinning blocks", { concurrency: fal
 		assert.equal(f.fetch.mock.callCount(), 1)
 		await f.pinner.putAndPin(f.block, f.account)
 		assert.equal(remoteAdds, 2, "A transient remote failure must be retried before reporting success")
+		const requests = f.fetch.mock.calls.map(({ arguments: [input] }) => {
+			assert.ok(input)
+			return new URL(input instanceof Request ? input.url : input.toString())
+		})
+		for (const request of requests) assert.deepEqual(request.searchParams.getAll("token"), ["a+b/c="])
+		const statusRequest = requests.find((request) => request.pathname === "/proxy/api/v0/pin/remote/ls")
+		assert.ok(statusRequest)
+		assert.equal(statusRequest.searchParams.get("cid"), localCID)
+		assert.deepEqual(statusRequest.searchParams.getAll("service"), ["test-pinner"])
+		assert.deepEqual(statusRequest.searchParams.getAll("status"), ["pinned", "pinning", "queued"])
 		const [input, init] = f.fetch.mock.calls[1].arguments
 		assert.ok(input)
 		const url = new URL(input instanceof Request ? input.url : input.toString())
-		assert.equal(url.pathname, "/api/v0/block/put")
-		assert.equal(url.searchParams.get("pin"), "true")
+		assert.equal(url.pathname, "/proxy/api/v0/block/put")
+		assert.deepEqual(url.searchParams.getAll("pin"), ["true"])
 		assert.equal(init?.method, "POST")
 		assert.ok(init.body instanceof FormData)
 		const data = init.body.get("data")

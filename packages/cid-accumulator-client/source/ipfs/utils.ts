@@ -4,6 +4,16 @@ import { CID } from "./CID.js"
 import { hashToMultiformatsDigest, isInternalNode, isIpldLink } from "../utils/codec.js"
 import * as dagCbor from "../utils/dagCbor.js"
 
+/** Append an IPFS endpoint while preserving base query parameters; request parameters take precedence. */
+export function buildIpfsUrl(baseUrl: string, endpoint: string, params: Record<string, string> = {}): URL {
+	const url = new URL(baseUrl)
+	url.pathname = `${url.pathname.replace(/\/+$/, "")}/${endpoint.replace(/^\/+/, "")}`
+	for (const [key, value] of Object.entries(params)) {
+		url.searchParams.set(key, value)
+	}
+	return url
+}
+
 /**
  * Handle IPFS API responses
  * @param res - The fetch Response object
@@ -35,10 +45,7 @@ export async function postIpfsBinary(
 	params: Record<string, string>,
 	body: Uint8Array
 ): Promise<any> {
-	const url = new URL(`${baseUrl}/${endpoint}`)
-	for (const [key, val] of Object.entries(params)) {
-		url.searchParams.set(key, val)
-	}
+	const url = buildIpfsUrl(baseUrl, endpoint, params)
 
 	const formData = new FormData()
 	const blob = new Blob([new Uint8Array(body)], { type: "application/octet-stream" })
@@ -64,26 +71,14 @@ export async function postIpfsEmpty(
 	endpoint: string,
 	params: Record<string, string> = {}
 ): Promise<any> {
-	// Make sure we don't have double slashes between baseUrl and endpoint
-	const base = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl
-	const path = endpoint.startsWith("/") ? endpoint : "/" + endpoint
-
-	// Construct URL with parameters using URLSearchParams
-	const searchParams = new URLSearchParams()
-	for (const [key, val] of Object.entries(params)) {
-		searchParams.append(key, val)
-	}
-
-	// Full request URL
-	const url = `${base}${path}`
-	const fullUrl = `${url}?${searchParams}`
+	const url = buildIpfsUrl(baseUrl, endpoint, params)
 
 	// Create a standard form for POST (this is how the CLI works)
 	const formData = new FormData()
 
 	// Most IPFS API endpoints expect the parameters in the URL, not the body
 	try {
-		const res = await fetch(fullUrl, {
+		const res = await fetch(url.toString(), {
 			method: "POST",
 			// Send a proper form-based POST like the CLI does
 			body: formData,

@@ -40,7 +40,7 @@ function makeCar(root: CIDDataPair, blocks: CIDDataPair[]): Uint8Array {
 	return Buffer.concat(parts)
 }
 
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, gatewayUrl = "https://ipfs.example.test") {
 	t.mock.method(console, "log", () => {})
 	t.mock.method(console, "warn", () => {})
 	t.mock.method(console, "error", () => {})
@@ -52,7 +52,7 @@ async function fixture(t: TestContext) {
 	const blocks = [root, branch, left, right, last]
 	const storage = new InMemoryAdapter()
 	const resolver = new IpfsResolver(storage, {
-		gatewayUrl: "https://ipfs.example.test",
+		gatewayUrl,
 		rateLimiterOptions: { intervalMs: 0, maxRetries: 0, baseDelay: 0, capDelay: 0 },
 	})
 	let car: Uint8Array | undefined
@@ -61,7 +61,7 @@ async function fixture(t: TestContext) {
 	t.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
 		const url = new URL(input instanceof Request ? input.url : input.toString())
 		requests.push(url)
-		const bytes = url.searchParams.get("format") === "car" ? car : rawBlocks.get(url.pathname.slice("/ipfs/".length))
+		const bytes = url.searchParams.get("format") === "car" ? car : rawBlocks.get(url.pathname.split("/").pop()!)
 		return bytes ? new Response(new Uint8Array(bytes)) : new Response(null, { status: 404 })
 	})
 	t.after(() => resolver.stop())
@@ -160,11 +160,17 @@ describe("complete IPFS tree resolution", { concurrency: false, timeout: 5000 },
 	})
 
 	test("an incomplete CAR can fall back to individual blocks before yielding payloads", async (t) => {
-		const f = await fixture(t)
+		const f = await fixture(t, "https://ipfs.example.test/gateway/?token=a%2Bb%2Fc%3D&format=raw")
 		f.setCar([f.root, f.branch])
 		for (const block of f.blocks) f.rawBlocks.set(block.cid.toString(), block.dagCborEncodedData)
 		const result = await f.resolver.fullyResolveCID(f.root.cid)
-		assert.equal(f.requests.filter((url) => !url.search).length, f.blocks.length)
+		assert.equal(f.requests[0].pathname, `/gateway/ipfs/${f.root.cid}`)
+		assert.deepEqual(f.requests[0].searchParams.getAll("format"), ["car"])
+		assert.equal(f.requests.filter((url) => url.searchParams.get("format") === "raw").length, f.blocks.length)
+		for (const url of f.requests) {
+			assert.ok(url.pathname.startsWith("/gateway/ipfs/"))
+			assert.equal(url.searchParams.get("token"), "a+b/c=")
+		}
 		assert.deepEqual(await collect(result), expectedPayloads)
 	})
 

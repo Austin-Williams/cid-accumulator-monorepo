@@ -5,6 +5,7 @@ import type { Storage } from "../storage/interface.js"
 import type { Logger } from "../types/common.js"
 import { CID } from "./CID.js"
 import type { IpfsErrorCheckResult, RemotePinningResult } from "./RemotePinningService.types.js"
+import { buildIpfsUrl } from "./utils.js"
 
 /**
  * A class to handle interactions with a remote pinning service
@@ -67,10 +68,11 @@ export class RemotePinningService {
 	 * @returns True if the CID is pinned on the remote service
 	 */
 	private async checkRemotePinStatus(cid: CID<unknown, 113, 18, 1>): Promise<"none" | "pinned" | "pinning" | "queued"> {
-		const url = new URL(`${this.baseUrl}/pin/remote/ls`)
-		url.searchParams.append("cid", cid.toString())
-		url.searchParams.append("service", this.serviceName)
-		url.searchParams.append("status", "pinned")
+		const url = buildIpfsUrl(this.baseUrl, "pin/remote/ls", {
+			cid: cid.toString(),
+			service: this.serviceName,
+			status: "pinned",
+		})
 		url.searchParams.append("status", "pinning")
 		url.searchParams.append("status", "queued")
 
@@ -133,11 +135,12 @@ export class RemotePinningService {
 	 * @throws The last error when transient failures exhaust the retry budget
 	 */
 	private async sendRemotePinRequest(cid: CID<unknown, 113, 18, 1>, name: string): Promise<RemotePinningResult> {
-		const url = new URL(`${this.baseUrl}/pin/remote/add`)
-		url.searchParams.append("arg", cid.toString())
-		url.searchParams.append("service", this.serviceName)
-		url.searchParams.append("name", name)
-		url.searchParams.append("background", "true")
+		const url = buildIpfsUrl(this.baseUrl, "pin/remote/add", {
+			arg: cid.toString(),
+			service: this.serviceName,
+			name,
+			background: "true",
+		})
 		return this.rateLimiter.execute(async () => {
 			let responseStatus: number | undefined
 			try {

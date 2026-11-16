@@ -1,6 +1,6 @@
 import * as dagCbor from "../utils/dagCbor.js"
 import { CarReader } from './CarReader.js'
-import { resolveMerkleTreeFromLocalMap, verifyCIDAgainstDagCborEncodedData } from "./utils.js"
+import { buildIpfsUrl, resolveMerkleTreeFromLocalMap, verifyCIDAgainstDagCborEncodedData } from "./utils.js"
 import { createLogger } from "../utils/logging.js"
 import { hexStringToUint8Array, isInternalNode, isIpldLink, uint8ArrayToHexString } from "../utils/codec.js"
 import { RateLimiter } from "../utils/rateLimiter.js"
@@ -55,7 +55,7 @@ export class IpfsResolver implements LifecycleComponent {
 
 		// if we get here, we need to fetch the block from IPFS
 		const fetchBlock = async () => {
-			const url = `${this.gatewayUrl}/ipfs/${cid.toString()}`
+			const url = buildIpfsUrl(this.gatewayUrl, `ipfs/${cid.toString()}`).toString()
 			const controller = new AbortController()
 			const timeoutId = setTimeout(() => controller.abort(), 5000)
 			try {
@@ -172,7 +172,7 @@ export class IpfsResolver implements LifecycleComponent {
 	}
 
 	private async getAndCacheMerkleTreeViaCarFile(rootCid: CID<unknown, 113, 18, 1>): Promise<boolean> {
-		const url = `${this.gatewayUrl}/ipfs/${rootCid.toString()}?format=car`
+		const url = buildIpfsUrl(this.gatewayUrl, `ipfs/${rootCid.toString()}`, { format: "car" }).toString()
 		const controller = new AbortController()
 		const timeoutId = setTimeout(() => controller.abort(), 15000)
 		try {
