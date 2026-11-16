@@ -43,7 +43,8 @@ export class AccountRegistryService implements LifecycleComponent {
 	) {
 		this.storage = storage
 		this.accumulatorContract = accumulatorContract
-		this.knownAccounts = config.specificAccountsOnly
+		// Discovery and cache hydration must not mutate the caller's configuration.
+		this.knownAccounts = [...config.specificAccountsOnly]
 		this.pollingIntervalMs = config.pollingIntervalMs
 		this.batchSize = config.batchSize
 		this.logger = createLogger("AccountRegistry")
