@@ -1,4 +1,4 @@
-import type { Storage } from "../interface"
+import type { Storage } from "../interface.js"
 
 /**
  * InMemoryAdapter implements Storage using a native Map without any persistence.

@@ -2,7 +2,7 @@
  * Helper functions for generating consistent DB keys
  */
 
-import { EthereumAddress } from "../ethereum/EthereumAddress"
+import { EthereumAddress } from "../ethereum/EthereumAddress.js"
 
 /**
  * Generate a key for account leaf payload

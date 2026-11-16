@@ -1,7 +1,7 @@
-import { createLogger } from "../../utils/logging"
+import { createLogger } from "../../utils/logging.js"
 
-import type { Logger } from "../../types/common"
-import type { Storage } from "../interface"
+import type { Logger } from "../../types/common.js"
+import type { Storage } from "../interface.js"
 
 export class IndexedDBAdapter implements Storage {
 	private _instanceId: number

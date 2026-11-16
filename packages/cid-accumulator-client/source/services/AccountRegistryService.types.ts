@@ -1,5 +1,5 @@
-import { EthereumAddress } from "../ethereum/EthereumAddress"
-import type { DeepPartial } from "../types/common"
+import { EthereumAddress } from "../ethereum/EthereumAddress.js"
+import type { DeepPartial } from "../types/common.js"
 
 export interface AccountRegistryServiceConfigUserInput extends DeepPartial<AccountRegistryServiceConfig> {}
 

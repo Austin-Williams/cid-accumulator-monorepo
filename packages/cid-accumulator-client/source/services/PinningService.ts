@@ -1,23 +1,23 @@
-import { MerkleMountainRange } from "../mmr/MerkleMountainRange"
-import { createLogger } from "../utils/logging"
-import { hexStringToUint8Array, uint8ArrayToHexString, cidDataPairArrayToStringForDB } from "../utils/codec"
-import * as dagCbor from "../utils/dagCbor"
-import { EthereumAddress } from "../ethereum/EthereumAddress"
+import { MerkleMountainRange } from "../mmr/MerkleMountainRange.js"
+import { createLogger } from "../utils/logging.js"
+import { hexStringToUint8Array, uint8ArrayToHexString, cidDataPairArrayToStringForDB } from "../utils/codec.js"
+import * as dagCbor from "../utils/dagCbor.js"
+import { EthereumAddress } from "../ethereum/EthereumAddress.js"
 
-import type { AccountRegistryService } from "./AccountRegistryService"
-import type { DataClientManager } from "./DataClientManager"
-import type { DataClient } from "../core/dataClient/DataClient"
-import type { IpfsPinner } from "../ipfs/IpfsPinner"
-import type { Storage } from "../storage/interface"
-import type { MMRLeafAppendedTrail, LeafRecord } from "../mmr/types"
-import type { LifecycleComponent } from "../types/common"
+import type { AccountRegistryService } from "./AccountRegistryService.js"
+import type { DataClientManager } from "./DataClientManager.js"
+import type { DataClient } from "../core/dataClient/DataClient.js"
+import type { IpfsPinner } from "../ipfs/IpfsPinner.js"
+import type { Storage } from "../storage/interface.js"
+import type { MMRLeafAppendedTrail, LeafRecord } from "../mmr/types.js"
+import type { LifecycleComponent } from "../types/common.js"
 import {
 	getAccountLeafPayloadKey,
 	getAccountLeafPayloadCIDKey,
 	getAccountLeafRootCIDAfterInsertKey,
 	getAccountLeafInsertionTrailKey,
-} from "../utils/dbKeys"
-import { AccumulatorContract } from "../ethereum/AccumulatorContract"
+} from "../utils/dbKeys.js"
+import { AccumulatorContract } from "../ethereum/AccumulatorContract.js"
 
 /**
  * The PinningService is responsible for ensuring that all CIDs associated with all accounts

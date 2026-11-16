@@ -1,5 +1,5 @@
-import type { Logger, RateLimiterOptions } from "../types/common"
-import { createLogger } from "./logging"
+import type { Logger, RateLimiterOptions } from "../types/common.js"
+import { createLogger } from "./logging.js"
 /**
  * A FIFO rate limiter that ensures requests are processed in order
  * with configurable retry logic and exponential backoff.

@@ -1,4 +1,4 @@
-import { DeepPartial } from "../types/common"
+import { DeepPartial } from "../types/common.js"
 
 export function mergeConfigWithDefaults<T>(userConfig: DeepPartial<T> | undefined, defaultConfig: T): T {
 	const result: any = Array.isArray(defaultConfig) ? [] : {}

@@ -1,4 +1,4 @@
-import type { CID } from "./CID"
+import type { CID } from "./CID.js"
 
 export type DagCborEncodedData = Uint8Array & { __dagCborEncoded: true }
 

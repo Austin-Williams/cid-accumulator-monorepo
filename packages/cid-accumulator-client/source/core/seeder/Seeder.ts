@@ -1,7 +1,7 @@
-import { createLogger } from "../../utils/logging"
+import { createLogger } from "../../utils/logging.js"
 
-import type { LifecycleComponent, Logger } from "../../types/common"
-import type { SeederDependencies } from "./Seeder.types"
+import type { LifecycleComponent, Logger } from "../../types/common.js"
+import type { SeederDependencies } from "./Seeder.types.js"
 
 /**
  * Seeder class coordinates the components needed to monitor and process

@@ -1,7 +1,7 @@
-import { CID } from "../ipfs/CID"
-import type { LeafRecord } from "../mmr/types"
-import type { Storage } from "./interface"
-import { EthereumAddress } from "../ethereum/EthereumAddress"
+import { CID } from "../ipfs/CID.js"
+import type { LeafRecord } from "../mmr/types.js"
+import type { Storage } from "./interface.js"
+import { EthereumAddress } from "../ethereum/EthereumAddress.js"
 import {
 	cidDataPairArrayToStringForDB,
 	uint8ArrayToHexString,
@@ -9,7 +9,7 @@ import {
 	stringToPeakWithHeightArray,
 	peakWithHeightArrayToStringForDB,
 	stringToCidDataPairArray,
-} from "../utils/codec"
+} from "../utils/codec.js"
 
 // ====================================================
 // DATABASE OPERATIONS & DATA MANAGEMENT

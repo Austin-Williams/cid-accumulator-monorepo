@@ -1,5 +1,5 @@
-import type { CID } from "../ipfs/CID"
-import type { EthereumAddress } from "./EthereumAddress"
+import type { CID } from "../ipfs/CID.js"
+import type { EthereumAddress } from "./EthereumAddress.js"
 
 export interface RawEthLog {
 	address: string // Contract address

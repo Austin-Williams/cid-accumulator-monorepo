@@ -1,9 +1,9 @@
-import { DataClient } from "../dataClient/DataClient"
-import { EthereumAddress } from "../../ethereum/EthereumAddress"
-import { createLogger } from "../../utils/logging"
+import { DataClient } from "../dataClient/DataClient.js"
+import { EthereumAddress } from "../../ethereum/EthereumAddress.js"
+import { createLogger } from "../../utils/logging.js"
 
-import type { DataClientDependencies } from "../dataClient/DataClient.types"
-import type { LifecycleComponent } from "../../types/common"
+import type { DataClientDependencies } from "../dataClient/DataClient.types.js"
+import type { LifecycleComponent } from "../../types/common.js"
 
 export class LightClient extends DataClient implements LifecycleComponent {
 	spinUpOrder: LifecycleComponent[]

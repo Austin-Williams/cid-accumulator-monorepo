@@ -1,4 +1,4 @@
-import { RateLimiterOptions } from "../types/common"
+import { RateLimiterOptions } from "../types/common.js"
 
 export interface RemotePinningServiceConfig {
 	serviceName?: string

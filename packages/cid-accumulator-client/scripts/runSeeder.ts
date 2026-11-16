@@ -1,9 +1,9 @@
 // #!/usr/bin/env node
 
-import { createSeeder } from "../source/core/seeder/createSeeder"
-import { registerGracefulShutdown } from "../source/utils/gracefulShutdown"
-import type { SeederConfigUserInput } from "../source/core/seeder/Seeder.types"
-import { isNodeJs } from "../source/utils/envDetection"
+import { createSeeder } from "../source/core/seeder/createSeeder.js"
+import { registerGracefulShutdown } from "../source/utils/gracefulShutdown.js"
+import type { SeederConfigUserInput } from "../source/core/seeder/Seeder.types.js"
+import { isNodeJs } from "../source/utils/envDetection.js"
 
 export async function runSeeder() {
 	if (!isNodeJs()) {

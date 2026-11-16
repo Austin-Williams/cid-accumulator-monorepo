@@ -1,44 +1,44 @@
 // Re-export constants
-export { NULL_CID } from "./utils/constants"
+export { NULL_CID } from "./utils/constants.js"
 
 // Core
-export { createLightClient } from "./core/lightClient/createLightClient"
-export { createSeeder } from "./core/seeder/createSeeder"
+export { createLightClient } from "./core/lightClient/createLightClient.js"
+export { createSeeder } from "./core/seeder/createSeeder.js"
 
 // Convenience helpers
-export { registerGracefulShutdown } from "./utils/gracefulShutdown"
-export { uint8ArrayToHexString } from "./utils/codec"
+export { registerGracefulShutdown } from "./utils/gracefulShutdown.js"
+export { uint8ArrayToHexString } from "./utils/codec.js"
 
 // Default configs
-export * from "./config/defaultConfig"
+export * from "./config/defaultConfig.js"
 
 // Storage interfaces & adapters
-export * from "./storage/interface"
-export { UniversalStorageAdapter } from "./storage/adapters/UniversalStorageAdapter"
+export * from "./storage/interface.js"
+export { UniversalStorageAdapter } from "./storage/adapters/UniversalStorageAdapter.js"
 
 // Ethereum types & helpers
-export { EthereumAddress } from "./ethereum/EthereumAddress"
-export { AccumulatorContract } from "./ethereum/AccumulatorContract"
+export { EthereumAddress } from "./ethereum/EthereumAddress.js"
+export { AccumulatorContract } from "./ethereum/AccumulatorContract.js"
 
 // IPFS types
-export { CID } from "./ipfs/CID"
-export { IpfsResolver } from "./ipfs/IpfsResolver"
-export { IpfsPinner } from "./ipfs/IpfsPinner"
+export { CID } from "./ipfs/CID.js"
+export { IpfsResolver } from "./ipfs/IpfsResolver.js"
+export { IpfsPinner } from "./ipfs/IpfsPinner.js"
 
 // Data managers & services
-export { DataClient } from "./core"
-export { DataClientManager } from "./services/DataClientManager"
-export { AccountRegistryService } from "./services/AccountRegistryService"
-export { EventCacheService } from "./services/EventCacheService"
-export { PinningService } from "./services/PinningService"
+export { DataClient } from "./core/index.js"
+export { DataClientManager } from "./services/DataClientManager.js"
+export { AccountRegistryService } from "./services/AccountRegistryService.js"
+export { EventCacheService } from "./services/EventCacheService.js"
+export { PinningService } from "./services/PinningService.js"
 
 // Types
-export * from "./types/common"
-export * from "./core/dataClient/DataClient.types"
-export * from "./core/seeder/Seeder.types"
-export * from "./core/lightClient/LightClient.types"
-export * from "./ipfs/IpfsResolver.types"
-export * from "./ipfs/IpfsPinner.types"
-export * from "./ethereum/AccumulatorContract.types"
-export * from "./services/AccountRegistryService.types"
-export * from "./services/EventCacheService.types"
+export * from "./types/common.js"
+export * from "./core/dataClient/DataClient.types.js"
+export * from "./core/seeder/Seeder.types.js"
+export * from "./core/lightClient/LightClient.types.js"
+export * from "./ipfs/IpfsResolver.types.js"
+export * from "./ipfs/IpfsPinner.types.js"
+export * from "./ethereum/AccumulatorContract.types.js"
+export * from "./services/AccountRegistryService.types.js"
+export * from "./services/EventCacheService.types.js"

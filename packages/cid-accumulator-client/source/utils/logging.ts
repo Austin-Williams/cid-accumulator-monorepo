@@ -1,4 +1,4 @@
-import type { Logger } from "../types/common"
+import type { Logger } from "../types/common.js"
 /**
  * Logging utility functions
  */

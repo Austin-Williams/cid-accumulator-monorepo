@@ -1,5 +1,5 @@
-import { CID } from './CID'
-import * as dagCbor from '../utils/dagCbor'
+import { CID } from './CID.js'
+import * as dagCbor from '../utils/dagCbor.js'
 
 // Reads a varint from a Uint8Array at a given offset. Returns [value, bytesRead]
 function readVarint(buf: Uint8Array, offset: number): [number, number] {
@@ -16,7 +16,7 @@ function readVarint(buf: Uint8Array, offset: number): [number, number] {
 	return [result, bytesRead]
 }
 
-import type { DagCborEncodedData } from './types'
+import type { DagCborEncodedData } from './types.js'
 
 export class CarReader {
 	// Allow bytes to be either Uint8Array or DagCborEncodedData for downstream compatibility

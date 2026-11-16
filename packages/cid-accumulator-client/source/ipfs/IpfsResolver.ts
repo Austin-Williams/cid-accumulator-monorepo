@@ -1,16 +1,16 @@
-import * as dagCbor from "../utils/dagCbor"
-import { CarReader } from './CarReader'
-import { resolveMerkleTreeFromLocalMap, verifyCIDAgainstDagCborEncodedData } from "./utils"
-import { createLogger } from "../utils/logging"
-import { hexStringToUint8Array, isInternalNode, isIpldLink, uint8ArrayToHexString } from "../utils/codec"
-import { RateLimiter } from "../utils/rateLimiter"
-import { verifyCIDAgainstDagCborEncodedDataOrThrow } from "./utils"
+import * as dagCbor from "../utils/dagCbor.js"
+import { CarReader } from './CarReader.js'
+import { resolveMerkleTreeFromLocalMap, verifyCIDAgainstDagCborEncodedData } from "./utils.js"
+import { createLogger } from "../utils/logging.js"
+import { hexStringToUint8Array, isInternalNode, isIpldLink, uint8ArrayToHexString } from "../utils/codec.js"
+import { RateLimiter } from "../utils/rateLimiter.js"
+import { verifyCIDAgainstDagCborEncodedDataOrThrow } from "./utils.js"
 
-import type { CID } from "./CID"
-import type { DagCborEncodedData, IpldNode } from "./types"
-import type { IpfsResolverConfig } from "./IpfsResolver.types"
-import type { LifecycleComponent, Logger } from "../types/common"
-import type { Storage } from "../storage/interface"
+import type { CID } from "./CID.js"
+import type { DagCborEncodedData, IpldNode } from "./types.js"
+import type { IpfsResolverConfig } from "./IpfsResolver.types.js"
+import type { LifecycleComponent, Logger } from "../types/common.js"
+import type { Storage } from "../storage/interface.js"
 
 // Used to get IPFS blocks and resolve IPFS dags
 export class IpfsResolver implements LifecycleComponent {

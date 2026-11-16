@@ -1,6 +1,6 @@
-import type { RateLimiterOptions } from "../types/common"
-import type { EthereumAddress } from "./EthereumAddress"
-import type { DeepPartial } from "../types/common"
+import type { RateLimiterOptions } from "../types/common.js"
+import type { EthereumAddress } from "./EthereumAddress.js"
+import type { DeepPartial } from "../types/common.js"
 
 export interface AccumulatorContractConfigUserInput extends DeepPartial<AccumulatorContractConfig> { }
 

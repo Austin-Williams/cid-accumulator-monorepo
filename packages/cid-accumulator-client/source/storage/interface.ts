@@ -1,4 +1,4 @@
-import type { LifecycleComponent } from "../types/common"
+import type { LifecycleComponent } from "../types/common.js"
 /**
  * DB Schema for CID Accumulator Singleton
  *	IpfsPinner storage:

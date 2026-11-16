@@ -1,12 +1,12 @@
 // shared/codec.ts
-import { sha256 } from "./hash"
-import * as dagCbor from "./dagCbor"
-import { CID } from "../ipfs/CID"
-import { EthereumAddress } from "../ethereum/EthereumAddress"
-import type { DagCborEncodedData } from "../ipfs/types"
-import type { CIDDataPair } from "../ipfs/types"
-import type { NormalizedLeafAppendedEvent, RawEthLog } from "../ethereum/events.types"
-import type { AccumulatorMetadata, LeafRecord, PeakWithHeight } from "../mmr/types"
+import { sha256 } from "./hash.js"
+import * as dagCbor from "./dagCbor.js"
+import { CID } from "../ipfs/CID.js"
+import { EthereumAddress } from "../ethereum/EthereumAddress.js"
+import type { DagCborEncodedData } from "../ipfs/types.js"
+import type { CIDDataPair } from "../ipfs/types.js"
+import type { NormalizedLeafAppendedEvent, RawEthLog } from "../ethereum/events.types.js"
+import type { AccumulatorMetadata, LeafRecord, PeakWithHeight } from "../mmr/types.js"
 
 interface Digest<Code, Size extends number = number> {
 	code: Code // hash function code (e.g., 0x12 for sha2-256)

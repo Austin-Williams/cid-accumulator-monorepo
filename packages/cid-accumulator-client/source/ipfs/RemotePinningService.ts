@@ -1,10 +1,10 @@
-import type { RemotePinningServiceConfig } from "./RemotePinningService.types"
-import { RateLimiter } from "../utils/rateLimiter"
-import { createLogger } from "../utils/logging"
-import type { Storage } from "../storage/interface"
-import type { Logger } from "../types/common"
-import { CID } from "./CID"
-import type { IpfsErrorCheckResult, RemotePinningResult } from "./RemotePinningService.types"
+import type { RemotePinningServiceConfig } from "./RemotePinningService.types.js"
+import { RateLimiter } from "../utils/rateLimiter.js"
+import { createLogger } from "../utils/logging.js"
+import type { Storage } from "../storage/interface.js"
+import type { Logger } from "../types/common.js"
+import { CID } from "./CID.js"
+import type { IpfsErrorCheckResult, RemotePinningResult } from "./RemotePinningService.types.js"
 
 /**
  * A class to handle interactions with a remote pinning service

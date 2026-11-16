@@ -1,5 +1,5 @@
-import { RateLimiterOptions } from "../types/common"
-import type { DeepPartial } from "../types/common"
+import { RateLimiterOptions } from "../types/common.js"
+import type { DeepPartial } from "../types/common.js"
 
 export interface IpfsResolverConfigUserInput extends DeepPartial<IpfsResolverConfig> {}
 

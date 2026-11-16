@@ -1,5 +1,5 @@
-import type { EthereumAddress } from "../ethereum/EthereumAddress"
-import type { DeepPartial } from "../types/common"
+import type { EthereumAddress } from "../ethereum/EthereumAddress.js"
+import type { DeepPartial } from "../types/common.js"
 
 export interface EventCacheServiceConfigUserInput extends DeepPartial<EventCacheServiceConfig> {}
 

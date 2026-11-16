@@ -1,7 +1,7 @@
-import type { EthereumAddress } from "../ethereum/EthereumAddress"
-import type { CID } from "../ipfs/CID"
-import type { DagCborEncodedData } from "../ipfs/types"
-import type { CIDDataPair } from "../ipfs/types"
+import type { EthereumAddress } from "../ethereum/EthereumAddress.js"
+import type { CID } from "../ipfs/CID.js"
+import type { DagCborEncodedData } from "../ipfs/types.js"
+import type { CIDDataPair } from "../ipfs/types.js"
 
 export type AccumulatorMetadata = {
 	peakHeights: number[]

@@ -5,7 +5,7 @@ import { dirname, join } from "node:path"
 import { describe, test } from "node:test"
 import type { TestContext } from "node:test"
 import { setImmediate } from "node:timers/promises"
-import { JSMapAdapter } from "../source/storage/adapters/JSMapAdapter"
+import { JSMapAdapter } from "../source/storage/adapters/JSMapAdapter.js"
 
 async function createFixture(t: TestContext) {
 	const directory = await fs.mkdtemp(join(tmpdir(), "cid-storage-test-"))

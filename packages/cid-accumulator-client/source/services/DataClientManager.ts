@@ -1,15 +1,15 @@
-import { EthereumAddress } from "../ethereum/EthereumAddress"
-import { createLogger } from "../utils/logging"
+import { EthereumAddress } from "../ethereum/EthereumAddress.js"
+import { createLogger } from "../utils/logging.js"
 
-import type { AccountRegistryService } from "./AccountRegistryService"
-import type { EventCacheService } from "./EventCacheService"
-import type { Storage } from "../storage/interface"
-import type { LeafRecord } from "../mmr/types"
-import type { LifecycleComponent, Logger } from "../types/common"
-import type { AccumulatorContract } from "../ethereum/AccumulatorContract"
-import type { IpfsResolver } from "../ipfs/IpfsResolver"
-import type { DataClientDependencies } from "../core/dataClient/DataClient.types"
-import { DataClient } from "../core/dataClient/DataClient"
+import type { AccountRegistryService } from "./AccountRegistryService.js"
+import type { EventCacheService } from "./EventCacheService.js"
+import type { Storage } from "../storage/interface.js"
+import type { LeafRecord } from "../mmr/types.js"
+import type { LifecycleComponent, Logger } from "../types/common.js"
+import type { AccumulatorContract } from "../ethereum/AccumulatorContract.js"
+import type { IpfsResolver } from "../ipfs/IpfsResolver.js"
+import type { DataClientDependencies } from "../core/dataClient/DataClient.types.js"
+import { DataClient } from "../core/dataClient/DataClient.js"
 
 /**
  * Manages a collection of DataClient instances for different accounts

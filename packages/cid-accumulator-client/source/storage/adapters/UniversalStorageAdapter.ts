@@ -1,7 +1,7 @@
-import { Storage } from "../interface"
-import { IndexedDBAdapter } from "./IndexedDBAdapter"
-import { JSMapAdapter } from "./JSMapAdapter"
-import { isBrowser } from "../../utils/envDetection"
+import { Storage } from "../interface.js"
+import { IndexedDBAdapter } from "./IndexedDBAdapter.js"
+import { JSMapAdapter } from "./JSMapAdapter.js"
+import { isBrowser } from "../../utils/envDetection.js"
 
 export class UniversalStorageAdapter implements Storage {
 	private backend: Storage

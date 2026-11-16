@@ -1,13 +1,13 @@
-import { EthereumAddress } from "../ethereum/EthereumAddress"
+import { EthereumAddress } from "../ethereum/EthereumAddress.js"
 
-import type { AccumulatorContractConfig } from "../ethereum/AccumulatorContract.types"
-import type { AccountRegistryServiceConfig } from "../services/AccountRegistryService.types"
-import type { EventCacheServiceConfig } from "../services/EventCacheService.types"
-import type { SeederConfig } from "../core/seeder/Seeder.types"
-import type { IpfsPinnerConfig } from "../ipfs/IpfsPinner.types"
-import type { IpfsResolverConfig } from "../ipfs/IpfsResolver.types"
-import type { LightClientConfig } from "../core/lightClient/LightClient.types"
-import type { RateLimiterOptions } from "../types/common"
+import type { AccumulatorContractConfig } from "../ethereum/AccumulatorContract.types.js"
+import type { AccountRegistryServiceConfig } from "../services/AccountRegistryService.types.js"
+import type { EventCacheServiceConfig } from "../services/EventCacheService.types.js"
+import type { SeederConfig } from "../core/seeder/Seeder.types.js"
+import type { IpfsPinnerConfig } from "../ipfs/IpfsPinner.types.js"
+import type { IpfsResolverConfig } from "../ipfs/IpfsResolver.types.js"
+import type { LightClientConfig } from "../core/lightClient/LightClient.types.js"
+import type { RateLimiterOptions } from "../types/common.js"
 
 // ETHEREUM
 export const defaultAccumulatorContractAddress = new EthereumAddress("0x8fA8C72c306f736701B3FC27976fAd25413fF5bF")

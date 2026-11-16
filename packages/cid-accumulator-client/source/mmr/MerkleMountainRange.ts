@@ -1,9 +1,9 @@
-import type { MMRLeafAppendedTrail } from "./types"
-import { CID } from "../ipfs/CID"
-import { encodeBlock } from "../utils/codec"
-import { NULL_CID } from "../utils/constants"
-import { createLogger } from "../utils/logging"
-import type { Logger } from "../types/common"
+import type { MMRLeafAppendedTrail } from "./types.js"
+import { CID } from "../ipfs/CID.js"
+import { encodeBlock } from "../utils/codec.js"
+import { NULL_CID } from "../utils/constants.js"
+import { createLogger } from "../utils/logging.js"
+import type { Logger } from "../types/common.js"
 
 export class MerkleMountainRange {
 	public peaks: CID<unknown, 113, 18, 1>[] = []

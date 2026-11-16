@@ -1,6 +1,6 @@
-import { EthereumAddress } from "./EthereumAddress"
-import { CID } from "../ipfs/CID"
-import { RateLimiter } from "../utils/rateLimiter"
+import { EthereumAddress } from "./EthereumAddress.js"
+import { CID } from "../ipfs/CID.js"
+import { RateLimiter } from "../utils/rateLimiter.js"
 import {
 	getBlockNumber,
 	getLeafAppendedLogs,
@@ -8,12 +8,12 @@ import {
 	getNewAccountInitializedLogs,
 	getSingletonBirthdayBlockNum,
 	getState,
-} from "./commonCalls"
+} from "./commonCalls.js"
 
-import type { AccumulatorContractConfig } from "./AccumulatorContract.types"
-import type { AccumulatorMetadata, PeakWithHeight } from "../mmr/types"
-import type { LifecycleComponent } from "../types/common"
-import type { NormalizedLeafAppendedEvent, NormalizedNewAccountInitializedEvent } from "./events.types"
+import type { AccumulatorContractConfig } from "./AccumulatorContract.types.js"
+import type { AccumulatorMetadata, PeakWithHeight } from "../mmr/types.js"
+import type { LifecycleComponent } from "../types/common.js"
+import type { NormalizedLeafAppendedEvent, NormalizedNewAccountInitializedEvent } from "./events.types.js"
 
 /**
  * A class for CIDAccumulatorSingleton smart contract interactions

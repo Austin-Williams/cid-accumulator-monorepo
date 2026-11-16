@@ -1,4 +1,4 @@
-import type { Storage } from "../interface"
+import type { Storage } from "../interface.js"
 
 // JSMapAdapter implements Storage using a native Map,
 // with persistence to a local file (JSON-serialized).

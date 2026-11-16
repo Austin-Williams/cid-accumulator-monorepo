@@ -1,15 +1,15 @@
-import { AccumulatorContract } from "../../ethereum/AccumulatorContract"
-import { defaultLightClientConfig } from "../../config/defaultConfig"
-import { EthereumAddress } from "../../ethereum/EthereumAddress"
-import { EventCacheService } from "../../services/EventCacheService"
-import { IpfsResolver } from "../../ipfs/IpfsResolver"
-import { LightClient } from "./LightClient"
-import { mergeConfigWithDefaults } from "../../utils/mergeConfigs"
-import { UniversalStorageAdapter } from "../../storage/adapters/UniversalStorageAdapter"
+import { AccumulatorContract } from "../../ethereum/AccumulatorContract.js"
+import { defaultLightClientConfig } from "../../config/defaultConfig.js"
+import { EthereumAddress } from "../../ethereum/EthereumAddress.js"
+import { EventCacheService } from "../../services/EventCacheService.js"
+import { IpfsResolver } from "../../ipfs/IpfsResolver.js"
+import { LightClient } from "./LightClient.js"
+import { mergeConfigWithDefaults } from "../../utils/mergeConfigs.js"
+import { UniversalStorageAdapter } from "../../storage/adapters/UniversalStorageAdapter.js"
 
-import type { DataClientDependencies } from "../dataClient/DataClient.types"
-import type { LightClientConfigUserInput } from "./LightClient.types"
-import type { Storage } from "../../storage/interface"
+import type { DataClientDependencies } from "../dataClient/DataClient.types.js"
+import type { LightClientConfigUserInput } from "./LightClient.types.js"
+import type { Storage } from "../../storage/interface.js"
 
 /**
  * Creates a light client for a specific account

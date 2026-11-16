@@ -1,13 +1,13 @@
-import { EthereumAddress } from "../ethereum/EthereumAddress"
-import { createLogger } from "../utils/logging"
-import { getLeafRecordFromNormalizedLeafAppendedEvent } from "../utils/codec"
-import { putLeafRecordInDB, getLeafRecordFromDB } from "../storage/utils"
-import type { LeafRecord } from "../mmr/types"
-import type { LifecycleComponent, Logger } from "../types/common"
-import type { AccumulatorContract } from "../ethereum/AccumulatorContract"
-import type { Storage } from "../storage/interface"
-import type { NormalizedLeafAppendedEvent } from "../ethereum/events.types"
-import type { EventCacheServiceConfig } from "./EventCacheService.types"
+import { EthereumAddress } from "../ethereum/EthereumAddress.js"
+import { createLogger } from "../utils/logging.js"
+import { getLeafRecordFromNormalizedLeafAppendedEvent } from "../utils/codec.js"
+import { putLeafRecordInDB, getLeafRecordFromDB } from "../storage/utils.js"
+import type { LeafRecord } from "../mmr/types.js"
+import type { LifecycleComponent, Logger } from "../types/common.js"
+import type { AccumulatorContract } from "../ethereum/AccumulatorContract.js"
+import type { Storage } from "../storage/interface.js"
+import type { NormalizedLeafAppendedEvent } from "../ethereum/events.types.js"
+import type { EventCacheServiceConfig } from "./EventCacheService.types.js"
 /**
  * DB Schema for CID Accumulator Singleton
  *	IpfsPinner storage:

@@ -1,8 +1,8 @@
-import { sha256 } from "../utils/hash"
-import type { DagCborEncodedData, IpldNode } from "./types"
-import { CID } from "./CID"
-import { hashToMultiformatsDigest, isInternalNode, isIpldLink } from "../utils/codec"
-import * as dagCbor from "../utils/dagCbor"
+import { sha256 } from "../utils/hash.js"
+import type { DagCborEncodedData, IpldNode } from "./types.js"
+import { CID } from "./CID.js"
+import { hashToMultiformatsDigest, isInternalNode, isIpldLink } from "../utils/codec.js"
+import * as dagCbor from "../utils/dagCbor.js"
 
 /**
  * Handle IPFS API responses

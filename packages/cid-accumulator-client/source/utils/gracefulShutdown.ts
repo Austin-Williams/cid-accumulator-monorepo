@@ -1,4 +1,4 @@
-import { isNodeJs, isBrowser } from "./envDetection"
+import { isNodeJs, isBrowser } from "./envDetection.js"
 
 export function registerGracefulShutdown(fn: () => Promise<void>) {
 	let shuttingDown = false

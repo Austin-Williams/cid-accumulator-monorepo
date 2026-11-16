@@ -1,13 +1,13 @@
-import { createLogger } from "../utils/logging"
-import { getRemotePinningServices, postIpfsBinary, verifyCIDAgainstDagCborEncodedData } from "./utils"
-import { RemotePinningService } from "./RemotePinningService"
+import { createLogger } from "../utils/logging.js"
+import { getRemotePinningServices, postIpfsBinary, verifyCIDAgainstDagCborEncodedData } from "./utils.js"
+import { RemotePinningService } from "./RemotePinningService.js"
 
-import type { CID } from "./CID"
-import type { CIDDataPair } from "./types"
-import type { IpfsPinnerConfig } from "./IpfsPinner.types"
-import type { LifecycleComponent, RateLimiterOptions } from "../types/common"
-import type { Storage } from "../storage/interface"
-import type { EthereumAddress } from "../ethereum/EthereumAddress"
+import type { CID } from "./CID.js"
+import type { CIDDataPair } from "./types.js"
+import type { IpfsPinnerConfig } from "./IpfsPinner.types.js"
+import type { LifecycleComponent, RateLimiterOptions } from "../types/common.js"
+import type { Storage } from "../storage/interface.js"
+import type { EthereumAddress } from "../ethereum/EthereumAddress.js"
 
 /**
  * KuboIpfsPinner implements IpfsPinner using the Kubo (Go) IPFS HTTP API.

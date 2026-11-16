@@ -1,7 +1,7 @@
-import { CID } from "../ipfs/CID"
-import { encodeBlock } from "../utils/codec"
-import type { PeakWithHeight } from "./types"
-import { NULL_CID } from "../utils/constants"
+import { CID } from "../ipfs/CID.js"
+import { encodeBlock } from "../utils/codec.js"
+import type { PeakWithHeight } from "./types.js"
+import { NULL_CID } from "../utils/constants.js"
 
 // Computes the root CID from an array of peak CIDs, left-to-right bagging (canonical MMR logic).
 // @param peaks Array of CIDs (left-to-right order)

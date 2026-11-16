@@ -1,11 +1,11 @@
-import { EthereumAddress } from "../ethereum/EthereumAddress"
-import { createLogger } from "../utils/logging"
-import type { AccountRegistryServiceConfig } from "./AccountRegistryService.types"
-import type { Logger } from "../types/common"
-import type { AccumulatorContract } from "../ethereum/AccumulatorContract"
-import type { Storage } from "../storage/interface"
-import type { LifecycleComponent } from "../types/common"
-import type { NormalizedNewAccountInitializedEvent } from "../ethereum/events.types"
+import { EthereumAddress } from "../ethereum/EthereumAddress.js"
+import { createLogger } from "../utils/logging.js"
+import type { AccountRegistryServiceConfig } from "./AccountRegistryService.types.js"
+import type { Logger } from "../types/common.js"
+import type { AccumulatorContract } from "../ethereum/AccumulatorContract.js"
+import type { Storage } from "../storage/interface.js"
+import type { LifecycleComponent } from "../types/common.js"
+import type { NormalizedNewAccountInitializedEvent } from "../ethereum/events.types.js"
 
 /**
  * DB Schema:
