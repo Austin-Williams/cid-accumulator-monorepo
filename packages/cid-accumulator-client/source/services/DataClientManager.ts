@@ -123,15 +123,18 @@ export class DataClientManager implements LifecycleComponent {
 	 * @dev This should be called when the manager is no longer needed
 	 */
 	public stop(): void {
-		if (!this.isRunning) {
-			this.logger.warn("Not running - nothing to stop")
+		if (!this.isRunning && !this.initialized) {
+			this.logger.warn("Not initialized or running - nothing to stop")
 			return
 		}
-		this.unsubscribeFromAccountRegistryService()
-		this.unsubscribeFromEventCacheService()
 		this.isRunning = false
 		this.startGeneration++
 		this.initialized = false
+		try {
+			this.unsubscribeFromAccountRegistryService()
+		} finally {
+			this.unsubscribeFromEventCacheService()
+		}
 		this.logger.log("Stopped")
 	}
 

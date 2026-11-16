@@ -16,6 +16,7 @@ export class Seeder {
 	public readonly spinUpOrder: LifecycleComponent[]
 	public initialized: boolean = false
 	public running: boolean = false
+	private initializedComponents: LifecycleComponent[] = []
 	private logger: Logger
 
 	/**
@@ -49,9 +50,13 @@ export class Seeder {
 		this.logger.log("Initializing...")
 
 		try {
-			for (const component of this.spinUpOrder) await component.init()
+			for (const component of this.spinUpOrder) {
+				await component.init()
+				this.initializedComponents.push(component)
+			}
 		} catch (error) {
 			this.logger.error(`Initialization failed: ${error}`)
+			this.stopInitializedComponents()
 			throw error
 		}
 
@@ -78,6 +83,7 @@ export class Seeder {
 			for (const component of this.spinUpOrder) await component.start()
 		} catch (error) {
 			this.logger.error(`Failed to start seeder services: ${error}`)
+			this.stopInitializedComponents()
 			throw error
 		}
 
@@ -89,15 +95,27 @@ export class Seeder {
 	 * @dev Dependencies are stopped in reverse order of initialization
 	 */
 	stop(): void {
-		if (!this.running) {
+		if (!this.running && this.initializedComponents.length === 0) {
 			this.logger.warn("Not running, nothing to stop")
 			return
 		}
 
 		this.logger.log("Stopping services...")
 
+		const errors = this.stopInitializedComponents()
+		if (errors.length > 0) {
+			const aggMsg = errors.map((e, i) => `[${i + 1}] ${e.message}`).join("; ")
+			throw new Error(`One or more errors occurred during shutdown: ${aggMsg}`)
+		}
+		this.logger.log("Gracefully shut down")
+	}
+
+	private stopInitializedComponents(): Error[] {
+		this.running = false
+		this.initialized = false
 		const errors: Error[] = []
-		for (const component of this.spinUpOrder.slice().reverse()) {
+		// A failed storage init must not trigger stop(), which may persist an uninitialized store.
+		for (const component of this.initializedComponents.splice(0).reverse()) {
 			try {
 				component.stop()
 			} catch (error) {
@@ -107,12 +125,6 @@ export class Seeder {
 			}
 		}
 
-		this.running = false
-		this.initialized = false
-		if (errors.length > 0) {
-			const aggMsg = errors.map((e, i) => `[${i + 1}] ${e.message}`).join("; ")
-			throw new Error(`One or more errors occurred during shutdown: ${aggMsg}`)
-		}
-		this.logger.log("Gracefully shut down")
+		return errors
 	}
 }

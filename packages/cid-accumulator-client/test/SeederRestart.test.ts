@@ -169,9 +169,30 @@ function fixture(t: TestContext) {
 }
 
 describe("seeder restart catch-up", { concurrency: false, timeout: 5000 }, () => {
-	test("the same seeder catches up and pins downtime leaves before any subsequent append", async (t) => {
+	test("the seeder recovers startup, then catches up and pins downtime leaves on restart", async (t) => {
 		const f = fixture(t)
-		await f.append(Uint8Array.of(1))
+		const initial = await f.append(Uint8Array.of(1))
+		const registry = f.seeder.dependencies.accountRegistryService
+		const startRegistry = registry.start.bind(registry)
+		const unsubscribe = t.mock.method(registry, "unsubscribe")
+		const forwarded = t.mock.method(f.client, "onLeafAppended")
+		const error = new Error("Registry startup interrupted")
+		t.mock.method(
+			registry,
+			"start",
+			async () => {
+				await startRegistry()
+				throw error
+			},
+			{ times: 1 }
+		)
+		await assert.rejects(f.seeder.start(), (caught) => caught === error)
+		assert.equal(f.seeder.running, false)
+		assert.equal(f.seeder.initialized, false)
+		assert.equal(unsubscribe.mock.callCount(), 1)
+		// The initialized manager must be detached even though its start was never reached.
+		await f.events.fetchAndStoreEventsForBlock(initial.blockNumber)
+		assert.equal(forwarded.mock.callCount(), 0)
 		await f.seeder.start()
 		await f.append(Uint8Array.of(2))
 		await f.tick()

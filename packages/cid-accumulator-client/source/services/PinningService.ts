@@ -111,11 +111,12 @@ export class PinningService implements LifecycleComponent {
 	 * Shuts down the PinningService gracefully
 	 */
 	public stop(): void {
-		if (!this.isRunning) {
-			this.logger.log("PinningService is not running")
+		if (!this.isRunning && !this.initialized) {
+			this.logger.log("PinningService is not initialized or running")
 			return
 		}
 		this.isRunning = false
+		this.initialized = false
 		this.logger.log("Stopping PinningService")
 		this.stopPeriodicSanityCheck()
 		this.unsubscribeFunctions.splice(0).forEach((fn) => fn())

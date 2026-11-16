@@ -69,9 +69,11 @@ export class AccountRegistryService implements LifecycleComponent {
 				}
 
 				// Get all known accounts from DB
+				const accounts: EthereumAddress[] = []
 				for await (const record of this.storage.iterate("account-registry:account:")) {
-					this.knownAccounts.push(EthereumAddress.fromString(record.value))
+					accounts.push(EthereumAddress.fromString(record.value))
 				}
+				this.knownAccounts = accounts
 			}
 			this.initialized = true
 
