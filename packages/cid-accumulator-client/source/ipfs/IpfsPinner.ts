@@ -99,9 +99,13 @@ export class IpfsPinner implements LifecycleComponent {
 			dagCborEncodedData
 		)
 
-		// Confirm CID returned from IPFS node matches expected
-		if (res?.Key && res.Key !== cid.toString()) {
-			throw new Error(`[IpfsPinner] Mismatched CID returned from IPFS: expected ${cid.toString()}, got ${res.Key}`)
+		// HTTP success alone does not confirm that the node accepted this block.
+		const returnedCID = res?.Key
+		if (typeof returnedCID !== "string" || returnedCID.length === 0) {
+			throw new Error("[IpfsPinner] Invalid block/put response: expected a non-empty CID in Key")
+		}
+		if (returnedCID !== cid.toString()) {
+			throw new Error(`[IpfsPinner] Mismatched CID returned from IPFS: expected ${cid.toString()}, got ${returnedCID}`)
 		}
 		await this.handleRemotePinning(cid, account)
 	}

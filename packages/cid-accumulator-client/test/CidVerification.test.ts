@@ -72,11 +72,15 @@ describe("CID verification before reading or pinning blocks", { concurrency: fal
 		assert.equal(f.fetch.mock.callCount(), 0)
 	})
 
-	test("a valid CID/data pair uploads and pins the verified bytes", async (t) => {
+	test("pinning verified bytes requires CID confirmation and succeeds on retry", async (t) => {
 		const f = await fixture(t)
+		f.fetch.mock.mockImplementationOnce(
+			async () => new Response("<html>Sign in</html>", { headers: { "Content-Type": "text/html" } })
+		)
+		await assert.rejects(f.pinner.putAndPin(f.block, f.account), /Invalid block\/put response/)
 		await f.pinner.putAndPin(f.block, f.account)
-		assert.equal(f.fetch.mock.callCount(), 1)
-		const [input, init] = f.fetch.mock.calls[0].arguments
+		assert.equal(f.fetch.mock.callCount(), 2)
+		const [input, init] = f.fetch.mock.calls[1].arguments
 		assert.ok(input)
 		const url = new URL(input instanceof Request ? input.url : input.toString())
 		assert.equal(url.pathname, "/api/v0/block/put")
