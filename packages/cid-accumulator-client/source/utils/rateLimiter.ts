@@ -8,7 +8,7 @@ import { createLogger } from "./logging.js"
 /**
  * Retries an async function with full-jitter exponential backoff.
  * @param fn - Operation to retry
- * @param maxRetries - Maximum attempts before throwing
+ * @param maxRetries - Maximum retries after the initial attempt; 0 disables retries
  * @param baseDelay - Base delay in milliseconds for backoff
  * @param capDelay - Maximum backoff cap in milliseconds
  * @returns A promise that resolves with the result of the function
@@ -93,7 +93,7 @@ export class RateLimiter {
 		return new Promise<T>((resolve, reject) => {
 			this.queue.push({
 				id,
-				fn: () => retryWithBackoff(fn, this.maxRetries, this.baseDelay, this.capDelay),
+				fn,
 				resolve,
 				reject,
 			})

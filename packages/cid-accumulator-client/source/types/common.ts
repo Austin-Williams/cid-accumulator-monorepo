@@ -20,6 +20,7 @@ export interface Logger {
 
 export interface RateLimiterOptions {
 	intervalMs: number
+	/** Maximum retries after the initial attempt; 0 disables retries. */
 	maxRetries: number
 	baseDelay: number
 	capDelay: number
