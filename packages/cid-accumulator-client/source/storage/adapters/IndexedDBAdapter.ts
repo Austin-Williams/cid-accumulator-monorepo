@@ -42,7 +42,9 @@ export class IndexedDBAdapter implements Storage {
 			const tx = db.transaction(this.storeName, mode)
 			const store = tx.objectStore(this.storeName)
 			const req = fn(store)
-			req.onsuccess = () => resolve(req.result as T)
+			// A successful request can still be rolled back before the transaction commits.
+			tx.oncomplete = () => resolve(req.result as T)
+			tx.onabort = () => reject(tx.error ?? new Error("IndexedDB transaction aborted"))
 			req.onerror = () => reject(req.error)
 		})
 	}
@@ -68,6 +70,8 @@ export class IndexedDBAdapter implements Storage {
 		// Wrap cursor iteration in a promise to collect results, then yield
 		const results: { key: string; value: string }[] = await new Promise((resolve, reject) => {
 			const out: { key: string; value: string }[] = []
+			tx.oncomplete = () => resolve(out)
+			tx.onabort = () => reject(tx.error ?? new Error("IndexedDB transaction aborted"))
 			req.onsuccess = () => {
 				const cursor = req.result as IDBCursorWithValue | null
 				if (cursor) {
@@ -75,8 +79,6 @@ export class IndexedDBAdapter implements Storage {
 						out.push({ key: cursor.key, value: cursor.value })
 					}
 					cursor.continue()
-				} else {
-					resolve(out)
 				}
 			}
 			req.onerror = () => reject(req.error)
