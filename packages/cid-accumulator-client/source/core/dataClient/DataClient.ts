@@ -143,7 +143,8 @@ export class DataClient {
 		// Process each index sequentially
 		for (let i = fromIndex; i <= toIndex; i++) {
 			const payload = await this.getPayload(i)
-			if (payload) {
+			// An empty string represents a valid payload with zero bytes.
+			if (payload !== undefined) {
 				results.push({ index: i, payload })
 			} else {
 				throw new Error(`[DataClient] No payload found for leaf index ${i}. This should never happen.`)
