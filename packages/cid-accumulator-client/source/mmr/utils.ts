@@ -21,41 +21,25 @@ export async function getRootCIDFromPeaks(peaks: CID<unknown, 113, 18, 1>[]): Pr
 	return current
 }
 
+// Reconstructs the state before the latest append from the left peaks recorded in its event.
+// The payload argument is retained for compatibility; the merge hashes contain all the previous peaks needed.
 export async function computePreviousRootCIDAndPeaksWithHeights(
 	currentPeaksWithHeights: PeakWithHeight[],
-	payload: Uint8Array,
+	_payload: Uint8Array,
 	mergeLeftHashesDuringLatestMerge: CID<unknown, 113, 18, 1>[]
 ): Promise<{ previousRootCID: CID<unknown, 113, 18, 1>; previousPeaksWithHeights: PeakWithHeight[] }> {
-	// Defensive copy
-	let peaks: PeakWithHeight[] = currentPeaksWithHeights.map((p) => ({ cid: p.cid, height: p.height }))
-
-	if (currentPeaksWithHeights.length == 0) return { previousRootCID: NULL_CID, previousPeaksWithHeights: [] } // if there are no peaks now, there never were
-
-	if (mergeLeftHashesDuringLatestMerge.length === 0) {
-		// No merges, just remove the peak with height 0
-		const previousPeaksWithHeights = currentPeaksWithHeights.filter((p) => p.height !== 0)
-		const previousRootCID: CID<unknown, 113, 18, 1> = await getRootCIDFromPeaks(
-			previousPeaksWithHeights.map((p) => p.cid)
-		)
-		return { previousRootCID, previousPeaksWithHeights }
+	if (currentPeaksWithHeights.length === 0) {
+		return { previousRootCID: NULL_CID, previousPeaksWithHeights: [] }
 	}
 
-	// Unmerge for each left input (reverse order)
-	let reconstructedPeaks: PeakWithHeight[] = [...peaks]
+	// An append replaces the consumed rightmost peaks with one new peak, or simply adds a leaf peak.
+	const previousPeaksWithHeights = currentPeaksWithHeights.slice(0, -1).map((p) => ({ cid: p.cid, height: p.height }))
+
+	// The event records consumed peaks at heights 0, 1, ...; restore them in descending height order.
 	for (let i = mergeLeftHashesDuringLatestMerge.length - 1; i >= 0; i--) {
-		const mergedPeak = reconstructedPeaks.pop()
-		if (!mergedPeak) throw new Error("No mergedPeak to unmerge")
-		const childHeight = mergedPeak.height - 1
-		// Push left and right children as new peaks
-		reconstructedPeaks.push({ cid: mergeLeftHashesDuringLatestMerge[i], height: childHeight })
-		reconstructedPeaks.push({ cid: mergedPeak.cid, height: childHeight })
+		previousPeaksWithHeights.push({ cid: mergeLeftHashesDuringLatestMerge[i], height: i })
 	}
 
-	// Remove the new leaf peak at height 0 (not present in previous state)
-	const { cid: newLeafCID } = await encodeBlock(payload)
-	reconstructedPeaks = reconstructedPeaks.filter((p) => !(p.height === 0 && p.cid.toString() === newLeafCID.toString()))
-
-	const previousRootCID: CID<unknown, 113, 18, 1> = await getRootCIDFromPeaks(reconstructedPeaks.map((p) => p.cid))
-
-	return { previousRootCID, previousPeaksWithHeights: reconstructedPeaks }
+	const previousRootCID = await getRootCIDFromPeaks(previousPeaksWithHeights.map((p) => p.cid))
+	return { previousRootCID, previousPeaksWithHeights }
 }
