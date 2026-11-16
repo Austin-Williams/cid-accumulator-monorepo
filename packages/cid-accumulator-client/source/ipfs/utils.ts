@@ -41,7 +41,7 @@ export async function postIpfsBinary(
 	}
 
 	const formData = new FormData()
-	const blob = new Blob([body], { type: "application/octet-stream" })
+	const blob = new Blob([new Uint8Array(body)], { type: "application/octet-stream" })
 	formData.append("data", blob)
 
 	const res = await fetch(url.toString(), {

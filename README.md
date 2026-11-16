@@ -103,7 +103,7 @@ If you don't want to write all that off-chain code yourself, you can just use th
 
 ## The Light Client
 
-The light client is a lightweight, universal JS/TS class that works in modern browsers and Node.js (18.x or later). It is intended to be used in decentralized UIs.
+The light client is a lightweight, universal JS/TS class that works in modern browsers and Node.js (26.13.1 or later). It is intended to be used in decentralized UIs.
 
 The light client:
 - Collects and verifies all payload data for a single ethereum address.
@@ -232,7 +232,7 @@ If you don't want to write your own seeder code, you can use the `Seeder` class 
 
 ### Requirements
 
-- Node.js v18.x or later.
+- Node.js v26.13.1 or later. The root `.nvmrc` selects v26.13.1 for development.
 
 - An IPFS node. The easiest way is to install [IPFS Desktop](https://docs.ipfs.tech/install/ipfs-desktop/) and start it. Its default settings are fine.
 
@@ -248,15 +248,17 @@ You can clone this repo and run the seeder from the command line with the defaul
 
 ```bash
 git clone https://github.com/Austin-Williams/cid-accumulator-singleton.git
-cd cid-accumulator-singleton/packages/cid-accumulator-client/
-npm install
-npx tsx ./scripts/runSeeder.ts
+cd cid-accumulator-singleton
+npm ci
+npm run seeder --workspace cid-accumulator-client
 ```
+
+Run `npm ci` from the repository root to install all workspace dependencies using the committed `package-lock.json`.
 
 You can also run it with custom options. E.g.:
 
 ```bash
-npx tsx ./scripts/runSeeder.ts --remotePin=true --ethereumHttpRpcUrl=https://mainnet.infura.io/v3/<YourInfuraApiKey>
+npm run seeder --workspace cid-accumulator-client -- --remotePin=true --ethereumHttpRpcUrl=https://mainnet.infura.io/v3/<YourInfuraApiKey>
 ```
 
 **Available options (defaults shown):**

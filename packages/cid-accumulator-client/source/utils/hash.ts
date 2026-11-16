@@ -3,7 +3,7 @@
 export async function sha256(data: Uint8Array): Promise<Uint8Array> {
 	// Browser: Web Crypto API
 	if (typeof window !== "undefined" && window.crypto?.subtle) {
-		const hashBuffer = await window.crypto.subtle.digest("SHA-256", data)
+		const hashBuffer = await window.crypto.subtle.digest("SHA-256", new Uint8Array(data))
 		return new Uint8Array(hashBuffer)
 	}
 	// Node.js: built-in crypto

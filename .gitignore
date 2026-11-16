@@ -147,7 +147,6 @@ cache/
 .editorconfig
 .prettierrc.json
 .prettierrc
-package-lock.json
 /packages/cid-accumulator-client/example.mts
 /packages/cid-accumulator-client/.db
 /packages/cid-accumulator-client/hardhat.config.js

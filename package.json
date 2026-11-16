@@ -4,6 +4,9 @@
 	"workspaces": [
 		"packages/*"
 	],
+	"engines": {
+		"node": ">=26.13.1"
+	},
 	"version": "0.0.1",
 	"description": "A public goods contract and universal js/ts code for interacting with it.",
 	"main": "index.js",

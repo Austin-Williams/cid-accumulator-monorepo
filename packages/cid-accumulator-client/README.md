@@ -8,8 +8,8 @@ The CID Accumulator Client is off-chain code for fetching and verifying data for
 
 ## Requirements
 
-- **Light Client**: Works in both modern browsers and Node.js (18.x or later).
-- **Seeder**: Requires Node.js (18.x or later) and a running IPFS node (IPFS Desktop recommended).
+- **Light Client**: Works in both modern browsers and Node.js (26.13.1 or later).
+- **Seeder**: Requires Node.js (26.13.1 or later) and a running IPFS node (IPFS Desktop recommended).
 
 ## Installation
 
@@ -134,7 +134,7 @@ If you do not want to write your own seeder code, you can use the `Seeder` class
 
 ### Requirements
 
-- Node.js v18.x or later.
+- Node.js v26.13.1 or later. The root `.nvmrc` selects v26.13.1 for development.
 - An IPFS node. The easiest way is to install [IPFS Desktop](https://docs.ipfs.tech/install/ipfs-desktop/) and start it. The default settings are fine.
 - An Ethereum node. Ideally, you would run your own node, but a **private** (API-key protected) RPC provider (such as Infura or Alchemy) also works, even on their free tiers. **Do not** use a free-tier **public** RPC for running a seeder.
 
@@ -148,15 +148,17 @@ You can clone this repo and run the seeder from the command line with the defaul
 
 ```bash
 git clone https://github.com/Austin-Williams/cid-accumulator-singleton.git
-cd cid-accumulator-singleton/packages/cid-accumulator-client/
-npm install
-npx tsx ./scripts/runSeeder.ts
+cd cid-accumulator-singleton
+npm ci
+npm run seeder --workspace cid-accumulator-client
 ```
+
+Run `npm ci` from the repository root to install all workspace dependencies using the committed `package-lock.json`.
 
 You can also run it with custom options. For example:
 
 ```bash
-npx tsx ./scripts/runSeeder.ts --remotePin=true --ethereumHttpRpcUrl=https://mainnet.infura.io/v3/<YourInfuraApiKey>
+npm run seeder --workspace cid-accumulator-client -- --remotePin=true --ethereumHttpRpcUrl=https://mainnet.infura.io/v3/<YourInfuraApiKey>
 ```
 
 **Available options (defaults shown):**
