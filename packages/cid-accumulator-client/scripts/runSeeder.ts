@@ -17,6 +17,9 @@ export async function runSeeder() {
 
 
 	const customConfig: SeederConfigUserInput = {}
+	if (cliArgs.dbPath) {
+		customConfig.dbPath = cliArgs.dbPath
+	}
 	if (cliArgs.accumulatorContractAddress) {
 		customConfig.accumulatorContractConfig = { ...customConfig.accumulatorContractConfig, accumulatorContractAddress: cliArgs.accumulatorContractAddress }
 	}
@@ -82,12 +85,14 @@ function parseCliArgs(): CliArgs {
 
 		// Handle --flag=value format
 		if (arg.startsWith('--')) {
-			const [key, value] = arg.slice(2).split('=');
+			const separatorIndex = arg.indexOf('=');
+			const key = separatorIndex === -1 ? arg.slice(2) : arg.slice(2, separatorIndex);
+			const value = separatorIndex === -1 ? undefined : arg.slice(separatorIndex + 1);
 
 			switch (key) {
 				case 'specificAccountsOnly':
 					try {
-						args.specificAccountsOnly = JSON.parse(value || process.argv[++i]);
+						args.specificAccountsOnly = JSON.parse(value ?? process.argv[++i]);
 					} catch {
 						console.error('Invalid --specificAccountsOnly value. Must be a JSON array.');
 						process.exit(1);
@@ -95,24 +100,28 @@ function parseCliArgs(): CliArgs {
 					break;
 
 				case 'accumulatorContractAddress':
-					args.accumulatorContractAddress = value || process.argv[++i];
+					args.accumulatorContractAddress = value ?? process.argv[++i];
 					break;
 
 				case 'remotePin':
-					const remotePinValue = value || process.argv[++i];
+					const remotePinValue = value ?? process.argv[++i];
 					args.remotePin = remotePinValue === 'true' || remotePinValue === '1';
 					break;
 
 				case 'ethereumHttpRpcUrl':
-					args.ethereumHttpRpcUrl = value || process.argv[++i];
+					args.ethereumHttpRpcUrl = value ?? process.argv[++i];
 					break;
 
 				case 'ipfsGatewayUrl':
-					args.ipfsGatewayUrl = value || process.argv[++i];
+					args.ipfsGatewayUrl = value ?? process.argv[++i];
 					break;
 
 				case 'ipfsPinnerBaseUrl':
-					args.ipfsPinnerBaseUrl = value || process.argv[++i];
+					args.ipfsPinnerBaseUrl = value ?? process.argv[++i];
+					break;
+
+				case 'dbPath':
+					args.dbPath = value ?? process.argv[++i];
 					break;
 			}
 		}
