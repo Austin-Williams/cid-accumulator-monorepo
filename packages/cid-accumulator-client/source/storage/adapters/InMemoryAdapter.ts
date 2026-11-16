@@ -12,6 +12,10 @@ export class InMemoryAdapter implements Storage {
 		// No configuration needed for in-memory storage
 	}
 
+	async getIdentity(): Promise<object> {
+		return this
+	}
+
 	async put(key: string, value: string): Promise<void> {
 		this.store.set(key.toLowerCase(), value)
 	}

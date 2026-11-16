@@ -1,3 +1,4 @@
+import { mockChain } from "./mockChain.js"
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
 import type { TestContext } from "node:test"
@@ -36,6 +37,7 @@ function fixture(t: TestContext) {
 	}))
 	let head = 9
 	const contract = new AccumulatorContract(defaultLightClientAccumulatorContractConfig)
+	mockChain(t, contract, storage)
 	t.mock.method(contract, "getSingletonBirthdayBlockNum", async () => 1)
 	t.mock.method(contract, "getBlockNumber", async () => head)
 	const getLogs = t.mock.method(
@@ -121,6 +123,7 @@ describe("event cache account coverage", { concurrency: false, timeout: 5000 }, 
 
 	test("legacy caches support explicit reads outside the monitoring filter and account-specific clearing", async (t) => {
 		const f = fixture(t)
+		f.setHead(11)
 		await putLeafRecordInDB(f.storage, f.first, 0, f.logs[0])
 		await f.storage.put(`events:account:${f.first}:block:10`, "[0]")
 		// Old markers do not distinguish unfiltered queries from account-specific queries.

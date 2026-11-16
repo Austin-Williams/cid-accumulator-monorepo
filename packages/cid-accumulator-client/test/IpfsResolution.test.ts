@@ -1,3 +1,4 @@
+import { mockChain } from "./mockChain.js"
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
 import type { TestContext } from "node:test"
@@ -218,6 +219,7 @@ describe("complete IPFS tree resolution", { concurrency: false, timeout: 5000 },
 		await f.cache([f.root])
 		const account = new EthereumAddress("0x" + "11".repeat(20))
 		const contract = new AccumulatorContract(defaultLightClientAccumulatorContractConfig)
+		mockChain(t, contract, f.storage)
 		t.mock.method(contract, "getSingletonBirthdayBlockNum", async () => 1)
 		t.mock.method(contract, "getState", async () => ({
 			meta: { leafCount: 3, peakCount: 2, peakHeights: [1, 0], previousInsertBlockNumber: 3, deployBlockNumber: 1 },

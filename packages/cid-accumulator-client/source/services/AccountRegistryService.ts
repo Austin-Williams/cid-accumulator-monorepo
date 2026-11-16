@@ -6,6 +6,8 @@ import type { AccumulatorContract } from "../ethereum/AccumulatorContract.js"
 import type { Storage } from "../storage/interface.js"
 import type { LifecycleComponent } from "../types/common.js"
 import type { NormalizedNewAccountInitializedEvent } from "../ethereum/events.types.js"
+import { getChainState } from "./ChainState.js"
+import type { ChainState } from "./ChainState.js"
 
 /**
  * DB Schema:
@@ -35,6 +37,10 @@ export class AccountRegistryService implements LifecycleComponent {
 	private batchSize: number
 	private subscribers: ((account: EthereumAddress) => void)[] = []
 	private logger: Logger
+	private chain?: ChainState
+	private unsubscribeReset?: () => void
+	private needsReload = false
+	private pollingGeneration = 0
 
 	constructor(
 		storage: Storage,
@@ -53,56 +59,65 @@ export class AccountRegistryService implements LifecycleComponent {
 
 	public async init() {
 		try {
+			this.chain ??= await getChainState(this.storage, this.accumulatorContract)
+			this.unsubscribeReset ??= this.chain.subscribeReset(() => { this.needsReload = true })
+			const snapshot = await this.chain.snapshot()
 			// Get singleton birthday block
 			let singletonBirthdayBlock: string | undefined = await this.storage.get("account-registry:singletonBirthdayBlock")
 			if (!singletonBirthdayBlock) {
 				singletonBirthdayBlock = (await this.accumulatorContract.getSingletonBirthdayBlockNum()).toString()
 				if (!singletonBirthdayBlock) throw new Error("Failed to get singleton birthday block")
-				await this.storage.put("account-registry:singletonBirthdayBlock", singletonBirthdayBlock)
+				await this.chain.commit(snapshot, () => this.storage.put("account-registry:singletonBirthdayBlock", singletonBirthdayBlock!))
 			}
 
 			if (!this.specificAccountsMode) {
 				// Get highest processed block
 				const lastProcessedBlock = await this.storage.get("account-registry:lastProcessedBlock")
 				if (!lastProcessedBlock) {
-					await this.storage.put("account-registry:lastProcessedBlock", singletonBirthdayBlock)
+					await this.chain.commit(snapshot, () => this.storage.put("account-registry:lastProcessedBlock", String(Math.max(0, Number(singletonBirthdayBlock) - 1))))
 				}
 
 				// Get all known accounts from DB
-				const accounts: EthereumAddress[] = []
-				for await (const record of this.storage.iterate("account-registry:account:")) {
-					accounts.push(EthereumAddress.fromString(record.value))
-				}
-				this.knownAccounts = accounts
+				await this.reloadAccounts()
 			}
 			this.initialized = true
 
 			this.logger.log(`Initialized with ${this.knownAccounts.length} accounts`)
 		} catch (error) {
+			this.unsubscribeReset?.()
+			this.unsubscribeReset = undefined
 			this.logger.error(`Error during initialization: ${error}`)
 			throw error
 		}
 	}
 
 	public async start() {
+		if (this.pollForNewAccounts) return
+		const generation = ++this.pollingGeneration
 		if (!this.initialized) await this.init()
+		this.unsubscribeReset ??= this.chain!.subscribeReset(() => { this.needsReload = true })
+		await this.chain!.snapshot()
+		if (this.needsReload) await this.reloadAccounts()
+		if (generation !== this.pollingGeneration) return
+		this.pollForNewAccounts = !this.specificAccountsMode
 		// Notify subscribers of all known accounts
 		for (const account of this.knownAccounts) {
 			this.notifySubscribers(account)
 		}
 
-		if (this.specificAccountsMode) return
-
-		// Set flag before starting the polling loop to avoid race conditions
-		this.pollForNewAccounts = true
+		if (!this.isCurrentPoll(generation)) return
 		// fire and forget
-		this.poll().catch((error) => {
+		this.poll(generation).catch((error) => {
 			this.logger.error(`Error in polling loop: ${error}`)
 		})
 	}
 
 	public stop() {
 		this.pollForNewAccounts = false
+		this.pollingGeneration++
+		this.needsReload = true
+		this.unsubscribeReset?.()
+		this.unsubscribeReset = undefined
 	}
 
 	/**
@@ -136,38 +151,46 @@ export class AccountRegistryService implements LifecycleComponent {
 	 */
 	public async clearAccountCache(): Promise<number> {
 		if (!this.initialized) await this.init()
+		const snapshot = await this.chain!.snapshot()
+		return this.chain!.commit(snapshot, async () => {
 
-		let deletedCount = 0
-		const keysToDelete: string[] = []
+			let deletedCount = 0
+			const keysToDelete: string[] = []
 
-		// Iterate through all keys in the database with the account-registry: prefix
-		for await (const { key } of this.storage.iterate("account-registry:")) {
-			keysToDelete.push(key)
-		}
+			// Iterate through all keys in the database with the account-registry: prefix
+			for await (const { key } of this.storage.iterate("account-registry:")) {
+				keysToDelete.push(key)
+			}
 
-		// Delete all marked keys
-		for (const key of keysToDelete) {
-			await this.storage.delete(key)
-			deletedCount++
-		}
+			// Delete all marked keys
+			for (const key of keysToDelete) {
+				await this.storage.delete(key)
+				deletedCount++
+			}
 
-		// Clear the in-memory accounts array
-		this.knownAccounts = []
+			// Clear the in-memory accounts array
+			this.knownAccounts = []
 
-		// Set initialized to false since we need to reinitialize after clearing the cache
-		this.initialized = false
+			// Set initialized to false since we need to reinitialize after clearing the cache
+			this.initialized = false
 
-		this.logger.log(`Cleared ${deletedCount} account registry entries`)
-		return deletedCount
+			this.logger.log(`Cleared ${deletedCount} account registry entries`)
+			return deletedCount
+		})
 	}
 
 	/**
 	 * Syncs account registry by scanning for new account events from
 	 * the last processed block up to the latest block on the chain
 	 */
-	private async syncFromLastProcessedBlock(): Promise<void> {
+	private async syncFromLastProcessedBlock(generation: number): Promise<void> {
 		try {
+			if (!this.isCurrentPoll(generation)) return
 			if (!this.initialized) await this.init()
+			const chain = this.chain!
+			const snapshot = await chain.snapshot()
+			if (this.needsReload) await this.reloadAccounts()
+			if (!this.isCurrentPoll(generation)) return
 			const lastProcessedBlockStr = await this.storage.get("account-registry:lastProcessedBlock")
 			if (!lastProcessedBlockStr) {
 				throw new Error("[AccountRegistry] Missing lastProcessedBlock in storage. Was AccountRegistry initialized?")
@@ -175,7 +198,7 @@ export class AccountRegistryService implements LifecycleComponent {
 			const lastProcessedBlock = Number(lastProcessedBlockStr)
 
 			// Get current block from provider
-			const latestBlock = await this.accumulatorContract.getBlockNumber()
+			const latestBlock = snapshot.block.number
 
 			// Don't do anything if we're already up to date
 			if (lastProcessedBlock >= latestBlock) {
@@ -184,48 +207,76 @@ export class AccountRegistryService implements LifecycleComponent {
 			}
 
 			let currentBlock = lastProcessedBlock + 1
+			const finalized = await this.accumulatorContract.getBlock("finalized")
 
 			// Process in batches to avoid large queries
-			while (currentBlock <= latestBlock) {
-				const endBlock = Math.min(currentBlock + this.batchSize, latestBlock)
+			while (currentBlock <= latestBlock && this.isCurrentPoll(generation)) {
+				const endBlock = currentBlock <= finalized.number
+					? Math.min(currentBlock + this.batchSize, latestBlock, finalized.number)
+					: currentBlock
+				const blockHash = currentBlock > finalized.number
+					? (await chain.getBlock(snapshot, currentBlock)).hash
+					: undefined
 				// Get all NewAccountInitialized events for this batch
 				const events: NormalizedNewAccountInitializedEvent[] =
-					await this.accumulatorContract.getNewAccountInitializedLogs(currentBlock, endBlock)
+					await this.accumulatorContract.getNewAccountInitializedLogs(currentBlock, endBlock, blockHash)
 
-				// Process each event to add new accounts
-				for (const event of events) {
-					const account: EthereumAddress = event.account
-					if (!this.knownAccounts.includes(account)) {
-						await this.addAccount(account)
+				if (!this.isCurrentPoll(generation)) return
+				await chain.ensureCanonical(snapshot)
+				await chain.commit(snapshot, async () => {
+					for (const event of events) {
+						if (!this.isCurrentPoll(generation)) return
+						await this.addAccount(event.account, event.blockNumber)
 					}
-				}
+					if (!this.isCurrentPoll(generation)) return
+					await this.storage.put("account-registry:lastProcessedBlock", endBlock.toString())
+				})
 
 				// Update processed block for this batch
 				currentBlock = endBlock + 1
-				await this.storage.put("account-registry:lastProcessedBlock", endBlock.toString())
 			}
 		} catch (error: any) {
 			this.logger.error(`Error syncing accounts: ${error}`)
 		}
 	}
 
-	private async addAccount(account: EthereumAddress) {
-		if (this.knownAccounts.includes(account)) return
+	private async addAccount(account: EthereumAddress, blockNumber: number) {
+		if (this.knownAccounts.some((known) => known.toString() === account.toString())) return
+		await this.storage.put(`account-registry:discovered:${account}`, blockNumber.toString())
 		await this.storage.put(`account-registry:account:${this.knownAccounts.length}`, account.toString())
 		this.knownAccounts.push(account)
 		this.logger.log(`New account added: ${account.toString()}`)
 		this.notifySubscribers(account)
 	}
 
-	private async poll() {
-		while (this.pollForNewAccounts) {
+	private async reloadAccounts(): Promise<void> {
+		if (this.specificAccountsMode) {
+			this.needsReload = false
+			return
+		}
+		await this.chain!.read(async () => {
+			const accounts: EthereumAddress[] = []
+			for await (const record of this.storage.iterate("account-registry:account:")) {
+				accounts.push(EthereumAddress.fromString(record.value))
+			}
+			this.knownAccounts = accounts
+			this.needsReload = false
+		})
+	}
+
+	private isCurrentPoll(generation: number): boolean {
+		return this.pollForNewAccounts && generation === this.pollingGeneration
+	}
+
+	private async poll(generation: number) {
+		while (this.isCurrentPoll(generation)) {
 			try {
-				await this.syncFromLastProcessedBlock()
+				await this.syncFromLastProcessedBlock(generation)
 			} catch (error) {
 				this.logger.error(`Error in polling loop: ${error}`)
 			}
 			// Wait pollingIntervalMs milliseconds before the next poll
-			if (!this.pollForNewAccounts) break
+			if (!this.isCurrentPoll(generation)) break
 			await new Promise((resolve) => setTimeout(resolve, this.pollingIntervalMs))
 		}
 	}

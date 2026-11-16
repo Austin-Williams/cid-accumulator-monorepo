@@ -1,3 +1,5 @@
+import { getChainState, ChainChangedError, type ChainState, type ChainSnapshot } from "../../services/ChainState.js"
+import type { ChainBlock } from "../../ethereum/events.types.js"
 import { createLogger } from "../../utils/logging.js"
 import { getLeafRecordFromDB, putLeafRecordInDB } from "../../storage/utils.js"
 import { peakWithHeightArrayToStringForDB, uint8ArrayToHexString } from "../../utils/codec.js"
@@ -14,6 +16,10 @@ import type { AccumulatorMetadata, LeafRecord, PeakWithHeight } from "../../mmr/
 import type { Logger } from "../../types/common.js"
 import type { Storage } from "../../storage/interface.js"
 import type { IpfsResolver } from "../../ipfs/IpfsResolver.js"
+
+export type DataClientEvent =
+	| { type: "append"; record: LeafRecord }
+	| { type: "rollback"; account: EthereumAddress; firstInvalidLeafIndex: number; block: ChainBlock }
 
 const MAX_SYNC_SNAPSHOT_REFRESHES = 3
 
@@ -35,7 +41,11 @@ export class DataClient {
 
 	public syncing: boolean = false
 	private syncPromise?: Promise<void>
-	private subscribers: Array<(newLeafRecord: LeafRecord) => void> = []
+	private subscribers: Array<(event: DataClientEvent) => void> = []
+	private activeSnapshot?: ChainSnapshot
+	private unsubscribeRollback?: () => void
+	private connectionGeneration = 0
+	public get chain(): Promise<ChainState> { return getChainState(this.storage, this.accumulatorContract) }
 	protected logger: Logger
 
 	public completedInitialSync: boolean = false
@@ -66,45 +76,98 @@ export class DataClient {
 	 * @return A promise that resolves when syncing is complete
 	 */
 	public sync(): Promise<void> {
-		if (this.syncPromise) {
-			return this.syncPromise
-		}
+		if (this.syncPromise) return this.syncPromise
+		const connectionGeneration = this.connectionGeneration
 		this.syncing = true
 		this.completedInitialSync = false
-		this.syncPromise = Promise.resolve()
-			.then(async () => {
-				let state = await this.accumulatorContract.getState(this.account)
-				let snapshotRefreshes = 0
-				while (true) {
-					// Retrieval and verification must use the same contract snapshot on each attempt.
-					const { meta, peaks } = state
-					const currentRootCID = await getRootCIDFromPeaks(peaks.map((p) => p.cid))
-					await this.syncBackwardsFromLatest(meta, peaks, currentRootCID)
-					try {
-						await this.verifyCachedPayloads(meta.leafCount, currentRootCID)
-						break
-					} catch (error) {
-						if (!(error instanceof CacheAheadOfSnapshotError)) throw error
-						const latestState = await this.accumulatorContract.getState(this.account)
-						// Extra cache entries remain an integrity failure unless the chain advanced.
-						if (latestState.meta.leafCount <= meta.leafCount) throw error
-						if (snapshotRefreshes >= MAX_SYNC_SNAPSHOT_REFRESHES) {
-							throw new Error(
-								`[DataClient] Contract kept advancing during sync for ${this.account}; retry sync() to verify a fresh snapshot.`
-							)
+		this.syncPromise = Promise.resolve().then(async () => {
+			const chain = await this.chain
+			if (connectionGeneration === this.connectionGeneration) this.connectChain(chain)
+			for (let attempt = 0; ; attempt++) {
+				let snapshot: ChainSnapshot | undefined
+				try {
+					snapshot = await chain.snapshot()
+					this.activeSnapshot = snapshot
+					let state = await this.accumulatorContract.getState(this.account, { blockHash: snapshot.block.hash, requireCanonical: true })
+					let snapshotRefreshes = 0
+					while (true) {
+						const { meta, peaks } = state
+						const current = this.activeSnapshot!
+						await chain.commit(current, () => chain.trackAccount(this.account, meta.leafCount, meta.previousInsertBlockNumber))
+						const root = await getRootCIDFromPeaks(peaks.map(p => p.cid))
+						await this.syncBackwardsFromLatest(meta, peaks, root)
+						await chain.ensureCanonical(current)
+						try {
+							await this.verifyCachedPayloads(meta.leafCount, root)
+							await chain.ensureCanonical(current)
+							await chain.commit(current, async () => { this.completedInitialSync = true })
+							return
+						} catch (error) {
+							if (!(error instanceof CacheAheadOfSnapshotError)) throw error
+							const next = await chain.snapshot()
+							const latest = await this.accumulatorContract.getState(this.account, { blockHash: next.block.hash, requireCanonical: true })
+							if (latest.meta.leafCount <= meta.leafCount) throw error
+							if (snapshotRefreshes++ >= MAX_SYNC_SNAPSHOT_REFRESHES) throw new Error(`[DataClient] Contract kept advancing during sync for ${this.account}; retry sync() to verify a fresh snapshot.`)
+							this.activeSnapshot = next
+							state = latest
 						}
-						state = latestState
-						snapshotRefreshes++
 					}
+				} catch (error) {
+					// A canonical-state RPC may reject before returning any data. Reconcile that
+					// snapshot too, so this is retriable when its block was replaced.
+					const failedSnapshot = this.activeSnapshot ?? snapshot
+					if (failedSnapshot) {
+						try { await chain.ensureCanonical(failedSnapshot) } catch (changed) { error = changed }
+					}
+					if (!(error instanceof ChainChangedError) || attempt >= MAX_SYNC_SNAPSHOT_REFRESHES) throw error
 				}
-				this.completedInitialSync = true
-				this.logger.log(`Synced and verified against contract state.`)
-			})
-			.finally(() => {
-				this.syncing = false
-				this.syncPromise = undefined
-			})
+			}
+		}).finally(() => {
+			this.syncing = false
+			this.syncPromise = undefined
+			this.activeSnapshot = undefined
+		})
 		return this.syncPromise
+	}
+
+	/** Attach before lifecycle services can recover or publish chain events.
+	 * @internal A resolved chain lets a manager attach a newly created client synchronously.
+	 */
+	public async connectChainNotifications(source?: ChainState): Promise<void> {
+		const generation = this.connectionGeneration
+		const chain = source ?? await this.chain
+		if (generation === this.connectionGeneration) this.connectChain(chain)
+	}
+
+	private connectChain(chain: ChainState): void {
+		if (this.unsubscribeRollback) return
+		const stopReset = chain.subscribeReset(() => { this.completedInitialSync = false })
+		const stopRollback = chain.subscribeRollback(event => {
+			if (event.account.toString() !== this.account.toString()) return
+			this.completedInitialSync = false
+			this.notifySubscribers({ type: "rollback", account: this.account, firstInvalidLeafIndex: event.firstInvalidLeafIndex, block: event.block })
+			// Recovery may be triggered by another client sharing the database.
+			queueMicrotask(() => {
+				if (this.unsubscribeRollback) this.sync().catch(error => this.logger.error(`Reorganization sync failed: ${error}`))
+			})
+		})
+		this.unsubscribeRollback = () => { stopReset(); stopRollback() }
+	}
+
+	/** Lifecycle owners detach retained clients when stopped. Explicit sync reconnects them. */
+	public disconnectChain(): void {
+		this.connectionGeneration++
+		this.unsubscribeRollback?.()
+		this.unsubscribeRollback = undefined
+	}
+
+	private async write(operation: () => Promise<void>): Promise<void> {
+		if (!this.activeSnapshot) throw new Error("Account writes require a sync snapshot")
+		await (await this.chain).commit(this.activeSnapshot, operation)
+	}
+
+	private async put(key: string, value: string): Promise<void> {
+		await this.write(() => this.storage.put(key, value))
 	}
 
 	/**
@@ -115,7 +178,7 @@ export class DataClient {
 	 */
 	public onLeafAppended(event: LeafRecord): void {
 		// Notify all subscribers about the new leaf record
-		this.notifySubscribers(event)
+		this.notifySubscribers({ type: "append", record: event })
 
 		return
 	}
@@ -128,7 +191,7 @@ export class DataClient {
 	 * @return The highest contiguous leaf index with data
 	 */
 	public async getHighestIndex(): Promise<number> {
-		return this.getHighestContiguousLeafIndexWithData()
+		return (await this.chain).read(() => this.getHighestContiguousLeafIndexWithData())
 	}
 
 	/**
@@ -137,10 +200,13 @@ export class DataClient {
 	 * @returns The hex string (no 0x prefix) of the payload for leafIndex
 	 */
 	public async getPayload(leafIndex: number): Promise<string | undefined> {
+		return (await this.chain).read(() => this.readPayload(leafIndex))
+	}
+
+	private async readPayload(leafIndex: number): Promise<string | undefined> {
 		const record = await getLeafRecordFromDB(this.storage, this.account, leafIndex)
 		if (!record || !record.payload) return undefined
-		if (!(record.payload instanceof Uint8Array))
-			throw new Error(`[DataClient] Payload for leaf ${leafIndex} is not a Uint8Array`)
+		if (!(record.payload instanceof Uint8Array)) throw new Error(`[DataClient] Payload for leaf ${leafIndex} is not a Uint8Array`)
 		return uint8ArrayToHexString(record.payload)
 	}
 
@@ -154,30 +220,32 @@ export class DataClient {
 		fromIndex: number,
 		toIndex: number
 	): Promise<Array<{ index: number; payload: string }>> {
-		if (fromIndex < 0) throw new Error(`[DataClient] fromIndex must be >= 0, got ${fromIndex}`)
-		if (toIndex < fromIndex) throw new Error(`[DataClient] toIndex must be >= fromIndex, got ${toIndex} < ${fromIndex}`)
+		return (await this.chain).read(async () => {
+			if (fromIndex < 0) throw new Error(`[DataClient] fromIndex must be >= 0, got ${fromIndex}`)
+			if (toIndex < fromIndex) throw new Error(`[DataClient] toIndex must be >= fromIndex, got ${toIndex} < ${fromIndex}`)
 
-		const highestIndex = await this.getHighestIndex()
-		if (fromIndex > highestIndex) return [] // No data in this range
+			const highestIndex = await this.getHighestContiguousLeafIndexWithData()
+			if (fromIndex > highestIndex) return [] // No data in this range
 
-		// Adjust toIndex if it exceeds the highest available index
-		toIndex = Math.min(toIndex, highestIndex)
+			// Adjust toIndex if it exceeds the highest available index
+			toIndex = Math.min(toIndex, highestIndex)
 
-		const results: Array<{ index: number; payload: string }> = []
+			const results: Array<{ index: number; payload: string }> = []
 
-		// Process each index sequentially
-		for (let i = fromIndex; i <= toIndex; i++) {
-			const payload = await this.getPayload(i)
-			// An empty string represents a valid payload with zero bytes.
-			if (payload !== undefined) {
-				results.push({ index: i, payload })
-			} else {
-				throw new Error(`[DataClient] No payload found for leaf index ${i}. This should never happen.`)
+			// Process each index sequentially
+			for (let i = fromIndex; i <= toIndex; i++) {
+				const payload = await this.readPayload(i)
+				// An empty string represents a valid payload with zero bytes.
+				if (payload !== undefined) {
+					results.push({ index: i, payload })
+				} else {
+					throw new Error(`[DataClient] No payload found for leaf index ${i}. This should never happen.`)
+				}
 			}
-		}
 
-		// Sort by index to ensure consistent order
-		return results.sort((a, b) => a.index - b.index)
+			// Sort by index to ensure consistent order
+			return results.sort((a, b) => a.index - b.index)
+		})
 	}
 
 	/**
@@ -185,7 +253,7 @@ export class DataClient {
 	 * @param callback Function to call when a new leaf record is received
 	 * @returns Unsubscribe function
 	 */
-	public subscribe(callback: (newLeafRecord: LeafRecord) => void): () => void {
+	public subscribe(callback: (event: DataClientEvent) => void): () => void {
 		// Add the callback to the subscribers list
 		this.subscribers.push(callback)
 		// Return an unsubscribe function
@@ -278,19 +346,31 @@ export class DataClient {
 		const prefix = `account:${this.account.toString()}:leaf:`
 
 		// Get an iterator from the storage adapter
-		const iterator = this.storage.iterate(prefix)
+		const chain = await this.chain
+		const generation = chain.generation
+		const iterator = this.storage.iterate(prefix)[Symbol.asyncIterator]()
 
-		// Iterate through all matching keys
-		for await (const { key, value } of iterator) {
-			// Only process keys that end with :payload
-			if (key.endsWith(":payload")) {
-				// Extract the leaf index from the key
-				const match = key.match(/^account:.*?:leaf:(\d+):payload$/)
-				if (match) {
-					const index = parseInt(match[1], 10)
-					yield { index, payload: value }
+		try {
+			while (true) {
+				const next = await chain.read(async () => {
+					if (generation !== chain.generation) throw new ChainChangedError()
+					return iterator.next()
+				})
+				if (next.done) break
+				if (generation !== chain.generation) throw new ChainChangedError()
+				const { key, value } = next.value
+				// Only process keys that end with :payload
+				if (key.endsWith(":payload")) {
+					// Extract the leaf index from the key
+					const match = key.match(/^account:.*?:leaf:(\d+):payload$/)
+					if (match) {
+						const index = parseInt(match[1], 10)
+						yield { index, payload: value }
+					}
 				}
 			}
+		} finally {
+			await iterator.return?.()
 		}
 	}
 
@@ -299,10 +379,10 @@ export class DataClient {
 	 * @notice Notify all subscribers about a new leaf record
 	 * @param leafRecord The new leaf record
 	 */
-	private notifySubscribers(leafRecord: LeafRecord): void {
+	private notifySubscribers(event: DataClientEvent): void {
 		for (const subscriber of this.subscribers) {
 			try {
-				subscriber(leafRecord)
+				subscriber(event)
 			} catch (error) {
 				this.logger.error(`Error in subscriber: ${error}`)
 			}
@@ -370,7 +450,7 @@ export class DataClient {
 			this.logger.log(`The contract has no payloads for this account.`)
 			return
 		}
-		const highestContiguousLeafIndexWithData = await this.getHighestContiguousLeafIndexWithData()
+		const highestContiguousLeafIndexWithData = await (await this.chain).read(() => this.getHighestContiguousLeafIndexWithData())
 		if (highestContiguousLeafIndexWithData >= meta.leafCount - 1) {
 			this.logger.log(`All payloads are present in local storage. Verifying...`)
 			return
@@ -380,11 +460,11 @@ export class DataClient {
 		)
 		this.logger.log(`Attempting to resolve current root CID: ${currentRootCID.toString()} via IPFS`)
 		// Store the current root CID and peaks in the DB
-		await this.storage.put(
+		await this.put(
 			`account:${this.account.toString()}:leafIndex:${meta.leafCount - 1}:rootCidAfterInsert`,
 			currentRootCID.toString()
 		)
-		await this.storage.put(
+		await this.put(
 			`account:${this.account.toString()}:leafIndex:${meta.leafCount - 1}:peaksWithHeightsAfterInsert`,
 			peakWithHeightArrayToStringForDB(peaks)
 		)
@@ -457,11 +537,11 @@ export class DataClient {
 			// Otherwise prep for the next loop / step back
 
 			// Store useful data we got
-			await this.storage.put(
+			await this.put(
 				`account:${this.account}:leafIndex:${oldestLeafChecked.leafIndex - 1}:peaksWithHeightsAfterInsert`,
 				peakWithHeightArrayToStringForDB(previousPeaksWithHeights)
 			)
-			await this.storage.put(
+			await this.put(
 				`account:${this.account}:leafIndex:${oldestLeafChecked.leafIndex - 1}:rootCidAfterInsert`,
 				previousRootCID.toString()
 			)
@@ -517,7 +597,7 @@ export class DataClient {
 		// Read by index: storage iteration order and cached root metadata are not authoritative.
 		const mmr = new MerkleMountainRange()
 		for (let index = 0; index < leafCount; index++) {
-			const record = await getLeafRecordFromDB(this.storage, this.account, index)
+			const record = await (await this.chain).read(() => getLeafRecordFromDB(this.storage, this.account, index))
 			if (!record) throw new Error(`${errorPrefix}: missing leaf record at index ${index}.`)
 			await mmr.addLeafWithTrail(index, record.payload)
 		}
@@ -562,7 +642,7 @@ export class DataClient {
 						payload,
 					}
 
-					await putLeafRecordInDB(this.storage, this.account, leafIndex, leafRecord)
+					await this.write(() => putLeafRecordInDB(this.storage, this.account, leafIndex, leafRecord))
 					storeCount++
 				}
 			}
@@ -599,7 +679,7 @@ export class DataClient {
 	private async getLeafIndexesWithMissingPayload(maxLeafIndex: number): Promise<number[]> {
 		const missing: number[] = []
 		for (let i = 0; i <= maxLeafIndex; i++) {
-			const rec = await getLeafRecordFromDB(this.storage, this.account, i)
+			const rec = await (await this.chain).read(() => getLeafRecordFromDB(this.storage, this.account, i))
 			// Only count as missing if rec is undefined or payload is not a Uint8Array
 			if (!rec || !(rec.payload instanceof Uint8Array)) missing.push(i)
 		}

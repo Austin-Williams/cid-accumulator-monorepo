@@ -26,7 +26,7 @@ export interface StorageConfig {
  * - "events:account:{account}:block:{blockNumber}" - complete JSON array of leaf indices for this account, including []
  *
  * Shared leaf data storage (populated via on-chain events, IPFS downloads, CID-walkbacks, MMRs, etc):
- * Never delete anything another service has already written.
+ * Invalidate shared leaf data only through coordinated chain rollback.
  *
  * "account:{address}:leaf:{leafIndex}": { // LeafRecord
  *   account: EthereumAddress,           // the account address
@@ -44,6 +44,8 @@ export interface StorageConfig {
 
 // We use strings for both keys and values since that is compatible with most storage solutions
 export interface Storage extends LifecycleComponent {
+	/** Stable shared identity for adapters accessing the same database namespace in this process. */
+	getIdentity?(): Promise<object>
 	put(key: string, value: string): Promise<void>
 	get(key: string): Promise<string | undefined>
 	delete(key: string): Promise<void>

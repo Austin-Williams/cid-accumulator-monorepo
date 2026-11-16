@@ -1,3 +1,4 @@
+import { mockChain } from "./mockChain.js"
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
 import type { TestContext } from "node:test"
@@ -28,6 +29,7 @@ function fixture(t: TestContext, lazyLoadEvents = true) {
 	const storage = new InMemoryAdapter()
 	const account = new EthereumAddress("0x" + "ab".repeat(20))
 	const contract = new AccumulatorContract(defaultLightClientAccumulatorContractConfig)
+	mockChain(t, contract, storage)
 	let head = 10
 	const logs: NormalizedLeafAppendedEvent[] = []
 	t.mock.method(contract, "getSingletonBirthdayBlockNum", async () => 1)
@@ -134,6 +136,7 @@ describe("event cache restart catch-up", { concurrency: false, timeout: 5000 }, 
 		await f.service.start()
 		f.service.stop()
 		f.append(11)
+		f.setHead(11)
 		await f.service.fetchAndStoreEventsForBlock(11)
 		assert.deepEqual(
 			f.received.map((record) => record.leafIndex),

@@ -117,6 +117,7 @@ export async function parseLeafAppendedLog(log: RawEthLog): Promise<NormalizedLe
 		previousInsertBlockNumber,
 		mergeLeftHashes: mergeLeftHashesAsCIDs,
 		blockNumber: Number(log.blockNumber),
+		...(log.blockHash === undefined ? {} : { blockHash: log.blockHash.toLowerCase() }),
 	}
 }
 
@@ -137,5 +138,6 @@ export function parseNewAccountInitializedLog(log: RawEthLog): NormalizedNewAcco
 	return {
 		account: EthereumAddress.fromString("0x" + accountAddress),
 		blockNumber: Number(log.blockNumber),
+		...(log.blockHash === undefined ? {} : { blockHash: log.blockHash.toLowerCase() }),
 	}
 }

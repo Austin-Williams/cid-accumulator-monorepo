@@ -19,6 +19,7 @@ export { UniversalStorageAdapter } from "./storage/adapters/UniversalStorageAdap
 // Ethereum types & helpers
 export { EthereumAddress } from "./ethereum/EthereumAddress.js"
 export { AccumulatorContract } from "./ethereum/AccumulatorContract.js"
+export type { ChainBlock, BlockReference } from "./ethereum/events.types.js"
 
 // IPFS types
 export { CID } from "./ipfs/CID.js"
@@ -27,6 +28,9 @@ export { IpfsPinner } from "./ipfs/IpfsPinner.js"
 
 // Data managers & services
 export { DataClient } from "./core/index.js"
+export type { DataClientEvent } from "./core/dataClient/DataClient.js"
+export type { ChainSnapshot, ChainRollback } from "./services/ChainState.js"
+export { ChainChangedError } from "./services/ChainState.js"
 export { DataClientManager } from "./services/DataClientManager.js"
 export { AccountRegistryService } from "./services/AccountRegistryService.js"
 export { EventCacheService } from "./services/EventCacheService.js"

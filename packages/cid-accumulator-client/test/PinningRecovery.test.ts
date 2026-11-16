@@ -1,3 +1,4 @@
+import { mockChain } from "./mockChain.js"
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
 import type { TestContext } from "node:test"
@@ -47,6 +48,7 @@ function fixture(t: TestContext) {
 	const storage = new InMemoryAdapter()
 	const account = new EthereumAddress("0x" + "11".repeat(20))
 	const contract = new AccumulatorContract(defaultLightClientAccumulatorContractConfig)
+	mockChain(t, contract, storage)
 	const registry = new AccountRegistryService(storage, contract, {
 		...defaultSeederAccountRegistryServiceConfig,
 		specificAccountsOnly: [],

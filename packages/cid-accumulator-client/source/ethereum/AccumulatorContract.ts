@@ -2,6 +2,8 @@ import { EthereumAddress } from "./EthereumAddress.js"
 import { CID } from "../ipfs/CID.js"
 import { RateLimiter } from "../utils/rateLimiter.js"
 import {
+	getBlock,
+	getBlockByHash,
 	getBlockNumber,
 	getLeafAppendedLogs,
 	getRootCID,
@@ -13,7 +15,7 @@ import {
 import type { AccumulatorContractConfig } from "./AccumulatorContract.types.js"
 import type { AccumulatorMetadata, PeakWithHeight } from "../mmr/types.js"
 import type { LifecycleComponent } from "../types/common.js"
-import type { NormalizedLeafAppendedEvent, NormalizedNewAccountInitializedEvent } from "./events.types.js"
+import type { BlockReference, ChainBlock, NormalizedLeafAppendedEvent, NormalizedNewAccountInitializedEvent } from "./events.types.js"
 
 /**
  * A class for CIDAccumulatorSingleton smart contract interactions
@@ -57,6 +59,14 @@ export class AccumulatorContract implements LifecycleComponent {
 		return this.rateLimiter.execute(() => getBlockNumber(this.ethereumHttpRpcUrl))
 	}
 
+	async getBlock(block: number | "latest" | "finalized"): Promise<ChainBlock> {
+		return this.rateLimiter.execute(() => getBlock(this.ethereumHttpRpcUrl, block))
+	}
+
+	async getBlockByHash(hash: string): Promise<ChainBlock> {
+		return this.rateLimiter.execute(() => getBlockByHash(this.ethereumHttpRpcUrl, hash))
+	}
+
 	/**
 	 * Get the SINGLETON_BIRTHDAY_BLOCK_NUM from the contract
 	 * @returns The block number when the singleton was deployed, as a number
@@ -77,12 +87,13 @@ export class AccumulatorContract implements LifecycleComponent {
 	 * @param account The account address to get the state for
 	 * @returns The account state including metadata and peaks
 	 */
-	async getState(account: EthereumAddress): Promise<{ meta: AccumulatorMetadata; peaks: PeakWithHeight[] }> {
+	async getState(account: EthereumAddress, block: BlockReference = "latest"): Promise<{ meta: AccumulatorMetadata; peaks: PeakWithHeight[] }> {
 		const result: { meta: AccumulatorMetadata; peaks: PeakWithHeight[] } = await this.rateLimiter.execute(() =>
 			getState({
 				ethereumHttpRpcUrl: this.ethereumHttpRpcUrl,
 				contractAddress: this.contractAddress,
 				account,
+				block,
 			})
 		)
 		return result
@@ -93,12 +104,13 @@ export class AccumulatorContract implements LifecycleComponent {
 	 * @param account The account address to get the root CID for
 	 * @returns The root CID as a CID
 	 */
-	async getRootCID(account: EthereumAddress): Promise<CID<unknown, 113, 18, 1>> {
+	async getRootCID(account: EthereumAddress, block: BlockReference = "latest"): Promise<CID<unknown, 113, 18, 1>> {
 		return this.rateLimiter.execute(() =>
 			getRootCID({
 				ethereumHttpRpcUrl: this.ethereumHttpRpcUrl,
 				contractAddress: this.contractAddress,
 				account,
+				block,
 			})
 		)
 	}
@@ -113,7 +125,8 @@ export class AccumulatorContract implements LifecycleComponent {
 	async getLeafAppendedLogs(
 		fromBlock: number,
 		toBlock: number,
-		specificAccounts?: EthereumAddress[]
+		specificAccounts?: EthereumAddress[],
+		blockHash?: string
 	): Promise<NormalizedLeafAppendedEvent[]> {
 		const result: NormalizedLeafAppendedEvent[] = await this.rateLimiter.execute(() =>
 			getLeafAppendedLogs({
@@ -122,6 +135,7 @@ export class AccumulatorContract implements LifecycleComponent {
 				fromBlock,
 				toBlock,
 				specificAccounts,
+				blockHash,
 			})
 		)
 		return result
@@ -136,7 +150,8 @@ export class AccumulatorContract implements LifecycleComponent {
 	 */
 	async getNewAccountInitializedLogs(
 		fromBlock: number,
-		toBlock: number
+		toBlock: number,
+		blockHash?: string
 	): Promise<NormalizedNewAccountInitializedEvent[]> {
 		const result: NormalizedNewAccountInitializedEvent[] = await this.rateLimiter.execute(() =>
 			getNewAccountInitializedLogs({
@@ -144,6 +159,7 @@ export class AccumulatorContract implements LifecycleComponent {
 				contractAddress: this.contractAddress,
 				fromBlock,
 				toBlock,
+				blockHash,
 			})
 		)
 		return result

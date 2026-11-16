@@ -1,3 +1,4 @@
+import { mockChain } from "./mockChain.js"
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
 import type { TestContext } from "node:test"
@@ -31,6 +32,7 @@ function fixture(t: TestContext) {
 	const account = new EthereumAddress("0x" + "ab".repeat(20))
 	const storage = new InMemoryAdapter()
 	const contract = new AccumulatorContract(defaultLightClientAccumulatorContractConfig)
+	mockChain(t, contract, storage)
 	const mmr = new MerkleMountainRange()
 	const logs: NormalizedLeafAppendedEvent[] = []
 	function snapshot() {
@@ -162,15 +164,15 @@ describe("sync snapshots while the contract advances", { concurrency: false, tim
 	test("an append during hashing is noticed after the initial cache count", async (t) => {
 		const f = fixture(t)
 		await f.append(Uint8Array.of(1))
-		const get = f.storage.get.bind(f.storage)
+		const addLeaf = MerkleMountainRange.prototype.addLeafWithTrail
 		let appended = false
-		t.mock.method(f.storage, "get", async (key: string) => {
-			const value = await get(key)
-			if (!appended && key === `account:${f.account}:leaf:0:account`) {
+		t.mock.method(MerkleMountainRange.prototype, "addLeafWithTrail", async function (this: MerkleMountainRange, ...args: Parameters<typeof addLeaf>) {
+			const result = await addLeaf.apply(this, args)
+			if (!appended) {
 				appended = true
 				await f.append(Uint8Array.of(2))
 			}
-			return value
+			return result
 		})
 		await f.client.sync()
 		assert.equal(appended, true)

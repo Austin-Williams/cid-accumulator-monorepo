@@ -10,6 +10,8 @@ import type { AccumulatorContract } from "../ethereum/AccumulatorContract.js"
 import type { IpfsResolver } from "../ipfs/IpfsResolver.js"
 import type { DataClientDependencies } from "../core/dataClient/DataClient.types.js"
 import { DataClient } from "../core/dataClient/DataClient.js"
+import { getChainState } from "./ChainState.js"
+import type { ChainState } from "./ChainState.js"
 
 /**
  * Manages a collection of DataClient instances for different accounts
@@ -29,6 +31,7 @@ export class DataClientManager implements LifecycleComponent {
 	private initialized: boolean = false
 	private isRunning: boolean = false
 	private startGeneration = 0
+	private chain?: ChainState
 	protected logger: Logger
 
 	constructor(
@@ -56,6 +59,9 @@ export class DataClientManager implements LifecycleComponent {
 	 * @dev Subscribes to both new accounts and new leaf appended events
 	 */
 	public async init(): Promise<void> {
+		const generation = this.startGeneration
+		await this.connectChainNotifications()
+		if (generation !== this.startGeneration) return
 		if (this.initialized) {
 			this.logger.log("Already initialized")
 			return
@@ -92,6 +98,7 @@ export class DataClientManager implements LifecycleComponent {
 		const generation = ++this.startGeneration
 
 		if (!this.initialized) await this.init()
+		if (!this.isRunning || generation !== this.startGeneration) return
 		// A retained client may have missed events while stopped. Let any older sync
 		// finish first so it cannot restore the flag after we invalidate its snapshot.
 		await Promise.all(
@@ -123,12 +130,14 @@ export class DataClientManager implements LifecycleComponent {
 	 * @dev This should be called when the manager is no longer needed
 	 */
 	public stop(): void {
+		this.startGeneration++
+		this.chain = undefined
+		for (const client of this.dataClients.values()) client.disconnectChain()
 		if (!this.isRunning && !this.initialized) {
 			this.logger.warn("Not initialized or running - nothing to stop")
 			return
 		}
 		this.isRunning = false
-		this.startGeneration++
 		this.initialized = false
 		try {
 			this.unsubscribeFromAccountRegistryService()
@@ -163,10 +172,27 @@ export class DataClientManager implements LifecycleComponent {
 	 * @dev Initializes new dataClient instances before returning them
 	 */
 	public getOrCreateDataClient(account: EthereumAddress): DataClient {
-		if (this.dataClients.has(account.toString())) return this.dataClients.get(account.toString())!
-		const dataClient = new DataClient(account, this.dataClientDependencies)
-		this.dataClients.set(account.toString(), dataClient)
+		let dataClient = this.dataClients.get(account.toString())
+		if (!dataClient) {
+			dataClient = new DataClient(account, this.dataClientDependencies)
+			this.dataClients.set(account.toString(), dataClient)
+		}
+		if (this.chain) {
+			// Supplying the resolved chain attaches before this method returns.
+			dataClient.connectChainNotifications(this.chain).catch(error => {
+				this.logger.error(`Error connecting chain notifications for ${account}: ${error}`)
+			})
+		}
 		return dataClient
+	}
+
+	/** Lifecycle preparation runs before registry/event-cache recovery, including on restart. */
+	public async connectChainNotifications(): Promise<void> {
+		const generation = this.startGeneration
+		const chain = await getChainState(this.dataClientDependencies.storage, this.dataClientDependencies.accumulatorContract)
+		if (generation !== this.startGeneration) return
+		this.chain = chain
+		await Promise.all(Array.from(this.dataClients.values(), client => client.connectChainNotifications(chain)))
 	}
 
 	/**

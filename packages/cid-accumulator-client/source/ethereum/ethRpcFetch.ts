@@ -1,3 +1,5 @@
+import type { BlockReference } from "./events.types.js"
+
 // Makes a raw Ethereum JSON-RPC call using fetch.
 // @param ethereumHttpRpcUrl string (Ethereum node endpoint)
 // @param method string (JSON-RPC method)
@@ -43,7 +45,7 @@ export async function callContractView(
 	ethereumHttpRpcUrl: string,
 	contractAddress: string,
 	data: string,
-	blockTag: string = "latest"
+	blockTag: BlockReference = "latest"
 ) {
 	return ethRpcFetch(ethereumHttpRpcUrl, "eth_call", [{ to: contractAddress, data }, blockTag])
 }

@@ -63,9 +63,14 @@ const matchingPayloadsArray = payloadIndexMap.get('beef')
 // Download all payloads to a file
 const downloadedFilePath = await client.downloadAllPayloads()
 
-// Subscribe to new leaf events
-const unsubscribe = client.subscribe((newLeaf) => {
-  console.log(`New leaf appended: index ${newLeaf.leafIndex}`)
+// Follow the tip, including replacement of unfinalized history.
+const unsubscribe = client.subscribe((event) => {
+  if (event.type === 'rollback') {
+    // Remove your application's indexed leaves at and above this index.
+    console.log(`Discard leaves from index ${event.firstInvalidLeafIndex}`)
+    return
+  }
+  console.log(`New leaf appended: index ${event.record.leafIndex}`)
 })
 // When you no longer need the subscription
 unsubscribe()
@@ -84,6 +89,14 @@ When you call `client.start()`, the light client will:
 - Otherwise, it will fetch the previous event via the Ethereum RPC to compute the prior root CID and attempt to resolve it via the IPFS gateway.
 - It will continue "walking backwards" through prior root CIDs until it can resolve one via the IPFS gateway (or until it fully syncs from events).
 - Once fully synced, it will poll for new events to stay updated and notify any subscribers.
+
+Subscriptions deliver `append` and `rollback` events in order. A rollback invalidates the affected account's leaves at and above `firstInvalidLeafIndex`; applications maintaining their own index must discard that suffix before applying subsequent appends. This replaces the previous callback that received a leaf record directly. Consumers doing asynchronous indexing should process these notifications in order.
+
+Subscriptions deliver live notifications. After starting or resuming a stopped client, await synchronization and initialize your application's index from the verified cached payloads. Another service sharing the database may already have repaired a reorganization while that client was stopped.
+
+The client tracks the current tip and uses finalized blocks only to prune rollback bookkeeping. RPC providers must support block-hash state/log queries and the `finalized` block tag. Reorganization recovery also rewinds event discovery and the seeder's MMR. Already verified CID-addressed IPFS blocks remain reusable.
+
+On the first run with an older cache that has no block-hash checkpoints, the client validates its cached prefix against finalized state and refetches unverified data. Interrupted recovery resumes before cached data is exposed. Services sharing a database coordinate recovery within one JavaScript context; independently running processes or browser tabs should use separate database namespaces.
 
 Most light client users are not expected to run their own Ethereum node; instead, they will likely use a free-tier public RPC provider (e.g., Infura, Alchemy) and a public IPFS gateway (e.g., dweb.link). With that in mind, the client has been optimized to minimize the number and "weight" of RPC calls made to Ethereum and IPFS gateways. It also includes built-in rate limiting with automatic back-off and retries to prevent being blocked by public RPCs and gateways.
 

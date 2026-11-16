@@ -1,7 +1,12 @@
+/// <reference lib="es2021.weakref" />
+
 import { createLogger } from "../../utils/logging.js"
 
 import type { Logger } from "../../types/common.js"
 import type { Storage } from "../interface.js"
+
+// Each live adapter keeps its namespace identity alive. Unused namespaces can be collected.
+const identities = new Map<string, WeakRef<object>>()
 
 export class IndexedDBAdapter implements Storage {
 	private _instanceId: number
@@ -10,13 +15,25 @@ export class IndexedDBAdapter implements Storage {
 	private storeName: string
 	private dbPromise: Promise<IDBDatabase>
 	private logger: Logger
+	private readonly identity: object
 
 	constructor(dbName = "cid-accumulator", storeName = "kv") {
 		this._instanceId = IndexedDBAdapter._nextId++
 		this.dbName = dbName
 		this.storeName = storeName
+		for (const [key, reference] of identities) {
+			if (!reference.deref()) identities.delete(key)
+		}
+		const namespace = JSON.stringify([dbName, storeName])
+		this.identity = identities.get(namespace)?.deref() ?? {}
+		identities.set(namespace, new WeakRef(this.identity))
 		this.dbPromise = this.openDB()
 		this.logger = createLogger("IndexedDBAdapter")
+	}
+
+	async getIdentity(): Promise<object> {
+		await this.dbPromise
+		return this.identity
 	}
 
 	private openDB(): Promise<IDBDatabase> {

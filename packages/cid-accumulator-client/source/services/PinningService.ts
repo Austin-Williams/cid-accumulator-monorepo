@@ -9,7 +9,9 @@ import type { DataClientManager } from "./DataClientManager.js"
 import type { DataClient } from "../core/dataClient/DataClient.js"
 import type { IpfsPinner } from "../ipfs/IpfsPinner.js"
 import type { Storage } from "../storage/interface.js"
-import type { MMRLeafAppendedTrail, LeafRecord } from "../mmr/types.js"
+import type { MMRLeafAppendedTrail } from "../mmr/types.js"
+import { getChainState } from "./ChainState.js"
+import type { ChainSnapshot, ChainState } from "./ChainState.js"
 import type { LifecycleComponent } from "../types/common.js"
 import {
 	getAccountLeafPayloadKey,
@@ -38,6 +40,7 @@ export class PinningService implements LifecycleComponent {
 	private unsubscribeFunctions: (() => void)[] = []
 	private syncCheckInterval: ReturnType<typeof setInterval> | null = null
 	private syncCheckIntervalMs: number
+	private chain?: ChainState
 
 	/**
 	 * Creates a new PinningService instance
@@ -60,6 +63,7 @@ export class PinningService implements LifecycleComponent {
 	}
 
 	public async init(): Promise<void> {
+		this.chain ??= await getChainState(this.storage, this.accumulatorContract)
 		await this.ipfsPinner.init()
 		this.initialized = true
 		this.logger.log("Initializing PinningService")
@@ -73,6 +77,22 @@ export class PinningService implements LifecycleComponent {
 		}
 		this.isRunning = true
 		this.logger.log("Starting PinningService")
+		this.unsubscribeFunctions.push(this.chain!.subscribeRollback((event) => {
+			const key = event.account.toString()
+			const previous = this.mmrs.get(key)
+			if (!previous) return
+			const restored = new MerkleMountainRange()
+			// Recovery must not skip canonical leaves that have not been pinned yet.
+			if (previous.leafCount <= event.firstInvalidLeafIndex) {
+				restored.leafCount = previous.leafCount
+				restored.peaks = [...previous.peaks]
+			} else {
+				restored.leafCount = event.firstInvalidLeafIndex
+				restored.peaks = event.peaks.map((peak) => peak.cid)
+			}
+			this.mmrs.set(key, restored)
+			this.mmrSyncing.delete(key)
+		}))
 		// Listen before initial pinning can yield, so discoveries during startup are tracked too.
 		this.unsubscribeFunctions.push(
 			this.accountRegistryService.subscribe((account: EthereumAddress) => {
@@ -144,9 +164,10 @@ export class PinningService implements LifecycleComponent {
 
 			// Keep receiving events even if the initial sync or pin attempt fails.
 			this.unsubscribeFunctions.push(
-				dataClient.subscribe((record: LeafRecord) => {
-					this.pinAllNotYetPinnedCIDsForAccount(record.account).catch((error) => {
-						this.logger.error(`Error pinning new leaf for account ${record.account}: ${error}`)
+				dataClient.subscribe((event) => {
+					if (event.type !== "append") return
+					this.pinAllNotYetPinnedCIDsForAccount(event.record.account).catch((error) => {
+						this.logger.error(`Error pinning new leaf for account ${event.record.account}: ${error}`)
 					})
 				})
 			)
@@ -160,7 +181,11 @@ export class PinningService implements LifecycleComponent {
 			return
 		}
 
+		const dataClient = await this.validateAndGetDataClient(account)
+		const snapshot = await this.chain!.snapshot()
+		if (!this.isRunning) return
 		const accountKey = account.toString()
+		// snapshot() may have rolled back and replaced this account's MMR.
 		const mmr = this.validateAndGetMMR(account)
 		if (this.mmrSyncing.get(accountKey)) {
 			this.logger.log(`Account ${account.toString()} is already syncing MMR, skipping pinAllNotYetPinnedCIDsForAccount`)
@@ -169,11 +194,10 @@ export class PinningService implements LifecycleComponent {
 		this.mmrSyncing.set(accountKey, true)
 
 		try {
-			const dataClient = await this.validateAndGetDataClient(account)
 			const highestInDb = await dataClient.getHighestIndex()
 			for (let i = mmr.leafCount; i <= highestInDb; i++) {
 				if (!this.isRunning || this.mmrs.get(accountKey) !== mmr) return
-				await this.processLeafIndex(account, mmr, i)
+				await this.processLeafIndex(account, mmr, i, snapshot)
 			}
 		} finally {
 			// A stopped/restarted account may already have a different pin attempt running.
@@ -219,21 +243,25 @@ export class PinningService implements LifecycleComponent {
 	 * @param mmr The MerkleMountainRange for the account
 	 * @param leafIndex The leaf index to process
 	 */
-	private async processLeafIndex(account: EthereumAddress, mmr: MerkleMountainRange, leafIndex: number): Promise<void> {
+	private async processLeafIndex(account: EthereumAddress, mmr: MerkleMountainRange, leafIndex: number, snapshot: ChainSnapshot): Promise<void> {
 		// Get the payload data
-		const payloadData = await this.getPayloadData(account, leafIndex)
+		const payloadData = await this.chain!.read(() => this.getPayloadData(account, leafIndex))
 
 		const candidate = new MerkleMountainRange()
 		candidate.peaks = [...mmr.peaks]
 		candidate.leafCount = mmr.leafCount
-		const trail = await this.appendToMMRAndStoreMetadata(account, candidate, leafIndex, payloadData)
+		const trail = await this.appendToMMRAndStoreMetadata(account, candidate, leafIndex, payloadData, snapshot)
 
 		// Pin to IPFS
 		await this.pinTrailToIPFS(trail, account)
 		if (!this.isRunning || this.mmrs.get(account.toString()) !== mmr) return
 
 		// Apply the append and notify live MMR subscribers only after successful pinning.
-		await mmr.addLeafWithTrail(leafIndex, payloadData)
+		await this.chain!.ensureCanonical(snapshot)
+		await this.chain!.commit(snapshot, async () => {
+			if (!this.isRunning || this.mmrs.get(account.toString()) !== mmr) return
+			await mmr.addLeafWithTrail(leafIndex, payloadData)
+		})
 	}
 
 	/**
@@ -264,7 +292,8 @@ export class PinningService implements LifecycleComponent {
 		account: EthereumAddress,
 		mmr: MerkleMountainRange,
 		leafIndex: number,
-		payloadData: Uint8Array
+		payloadData: Uint8Array,
+		snapshot: ChainSnapshot
 	): Promise<MMRLeafAppendedTrail> {
 		// Append the payload to the MMR
 		const trail: MMRLeafAppendedTrail = await mmr.addLeafWithTrail(leafIndex, payloadData)
@@ -276,21 +305,24 @@ export class PinningService implements LifecycleComponent {
 			throw new Error(`Payload mismatch for leaf index ${leafIndex}. This should never happen.`)
 		}
 
-		// Store the payload CID in the DB
-		await this.storage.put(getAccountLeafPayloadCIDKey(account, leafIndex), trail[0].cid.toString())
+		await this.chain!.ensureCanonical(snapshot)
+		await this.chain!.commit(snapshot, async () => {
+			// Store metadata only while this snapshot still belongs to the active chain.
+			await this.storage.put(getAccountLeafPayloadCIDKey(account, leafIndex), trail[0].cid.toString())
 
-		// Store the root CID after insert in the DB
-		await this.storage.put(
-			getAccountLeafRootCIDAfterInsertKey(account, leafIndex),
-			trail[trail.length - 1].cid.toString()
-		)
+			// Store the root CID after insert in the DB
+			await this.storage.put(
+				getAccountLeafRootCIDAfterInsertKey(account, leafIndex),
+				trail[trail.length - 1].cid.toString()
+			)
 
-		// Store the insertion trail (but not the payloadCID/payload) in the DB
-		const trailWithoutPayload = trail.slice(1)
-		await this.storage.put(
-			getAccountLeafInsertionTrailKey(account, leafIndex),
-			cidDataPairArrayToStringForDB(trailWithoutPayload)
-		)
+			// Store the insertion trail (but not the payloadCID/payload) in the DB
+			const trailWithoutPayload = trail.slice(1)
+			await this.storage.put(
+				getAccountLeafInsertionTrailKey(account, leafIndex),
+				cidDataPairArrayToStringForDB(trailWithoutPayload)
+			)
+		})
 
 		return trail
 	}
@@ -379,10 +411,13 @@ export class PinningService implements LifecycleComponent {
 		if (!mmr || mmr.leafCount === 0) return false
 
 		// 1. Get the on-chain root CID from the contract
-		const onChainRootCID = await this.accumulatorContract.getRootCID(account)
+		const snapshot = await this.chain!.snapshot()
+		const onChainRootCID = await this.accumulatorContract.getRootCID(account, { blockHash: snapshot.block.hash, requireCanonical: true })
 
 		// 2. Get the local root CID from our MMR
 		const localRootCID = await mmr.rootCID()
+		await this.chain!.ensureCanonical(snapshot)
+		if (this.mmrs.get(account.toString()) !== mmr) return false
 
 		// 3. Compare them
 		const match = onChainRootCID.toString() === localRootCID.toString()

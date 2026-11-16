@@ -125,6 +125,8 @@ export class LightClient extends DataClient implements LifecycleComponent {
 	private async startServices(generation: number): Promise<void> {
 		if (!this.isCurrentStartup(generation)) return
 		try {
+			await this.connectChainNotifications()
+			if (!this.isCurrentStartup(generation)) return
 			// Connect before startup or initial sync can fetch and publish events.
 			this.unsubscribeFromEventCacheService = this.eventCacheService.subscribe((event) => {
 				if (this.isCurrentStartup(generation) && event.account.toString() === this.account.toString()) {
@@ -167,6 +169,7 @@ export class LightClient extends DataClient implements LifecycleComponent {
 	stop(): void {
 		// Invalidate even an init() whose first component is still pending.
 		this.lifecycleGeneration++
+		this.disconnectChain()
 		if (!this.running && this.initializedComponents.length === 0) {
 			this.logger.warn("Not running, nothing to stop")
 			return
@@ -185,6 +188,7 @@ export class LightClient extends DataClient implements LifecycleComponent {
 	private stopInitializedComponents(): Error[] {
 		const errors: Error[] = []
 		this.running = false
+		this.disconnectChain()
 		const unsubscribe = this.unsubscribeFromEventCacheService
 		this.unsubscribeFromEventCacheService = undefined
 		try {

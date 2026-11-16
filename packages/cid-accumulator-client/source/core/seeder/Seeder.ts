@@ -17,6 +17,7 @@ export class Seeder {
 	public initialized: boolean = false
 	public running: boolean = false
 	private initializedComponents: LifecycleComponent[] = []
+	private lifecycleGeneration = 0
 	private logger: Logger
 
 	/**
@@ -42,6 +43,7 @@ export class Seeder {
 	 * @returns Promise that resolves when initialization is complete
 	 */
 	async init(): Promise<void> {
+		const generation = this.lifecycleGeneration
 		if (this.initialized) {
 			this.logger.warn("Already initialized. Skipping initialization.")
 			return
@@ -50,13 +52,19 @@ export class Seeder {
 		this.logger.log("Initializing...")
 
 		try {
+			await this.dependencies.dataClientManager.connectChainNotifications()
+			if (generation !== this.lifecycleGeneration) return
 			for (const component of this.spinUpOrder) {
 				await component.init()
+				if (generation !== this.lifecycleGeneration) {
+					component.stop()
+					return
+				}
 				this.initializedComponents.push(component)
 			}
 		} catch (error) {
 			this.logger.error(`Initialization failed: ${error}`)
-			this.stopInitializedComponents()
+			if (generation === this.lifecycleGeneration) this.stopInitializedComponents()
 			throw error
 		}
 
@@ -76,14 +84,24 @@ export class Seeder {
 		}
 
 		this.running = true
+		const generation = this.lifecycleGeneration
 
 		try {
+			await this.dependencies.dataClientManager.connectChainNotifications()
+			if (generation !== this.lifecycleGeneration) return
 			if (!this.initialized) await this.init()
+			if (generation !== this.lifecycleGeneration) return
 			this.logger.log("Starting services...")
-			for (const component of this.spinUpOrder) await component.start()
+			for (const component of this.spinUpOrder) {
+				await component.start()
+				if (generation !== this.lifecycleGeneration) {
+					component.stop()
+					return
+				}
+			}
 		} catch (error) {
 			this.logger.error(`Failed to start seeder services: ${error}`)
-			this.stopInitializedComponents()
+			if (generation === this.lifecycleGeneration) this.stopInitializedComponents()
 			throw error
 		}
 
@@ -95,7 +113,9 @@ export class Seeder {
 	 * @dev Dependencies are stopped in reverse order of initialization
 	 */
 	stop(): void {
+		this.lifecycleGeneration++
 		if (!this.running && this.initializedComponents.length === 0) {
+			this.dependencies.dataClientManager.stop()
 			this.logger.warn("Not running, nothing to stop")
 			return
 		}
@@ -111,11 +131,15 @@ export class Seeder {
 	}
 
 	private stopInitializedComponents(): Error[] {
+		this.lifecycleGeneration++
 		this.running = false
 		this.initialized = false
 		const errors: Error[] = []
 		// A failed storage init must not trigger stop(), which may persist an uninitialized store.
-		for (const component of this.initializedComponents.splice(0).reverse()) {
+		const components = this.initializedComponents.splice(0).reverse()
+		// Notification preparation may precede a failed storage/component initialization.
+		if (!components.includes(this.dependencies.dataClientManager)) components.unshift(this.dependencies.dataClientManager)
+		for (const component of components) {
 			try {
 				component.stop()
 			} catch (error) {

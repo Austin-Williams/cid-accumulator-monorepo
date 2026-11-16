@@ -1,3 +1,4 @@
+import { initializeChain, mockChain } from "./mockChain.js"
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
 import type { TestContext } from "node:test"
@@ -16,11 +17,14 @@ function fixture(t: TestContext) {
 	t.mock.method(console, "log", () => {})
 	const account = new EthereumAddress("0x" + "11".repeat(20))
 	const contract = new AccumulatorContract(defaultLightClientAccumulatorContractConfig)
+	mockChain(t, contract)
 	t.mock.method(contract, "getSingletonBirthdayBlockNum", async () => 1)
 	t.mock.method(contract, "getBlockNumber", async () => 2)
-	const getLogs = t.mock.method(contract, "getNewAccountInitializedLogs", async () => [{ account, blockNumber: 2 }])
+	const getLogs = t.mock.method(contract, "getNewAccountInitializedLogs", async (from: number, to: number) =>
+		from <= 2 && to >= 2 ? [{ account, blockNumber: 2 }] : [])
 	const registries: AccountRegistryService[] = []
-	function create(config: Required<AccountRegistryServiceConfig>, storage = new InMemoryAdapter()) {
+	async function create(config: Required<AccountRegistryServiceConfig>, storage = new InMemoryAdapter()) {
+		await initializeChain(storage)
 		const registry = new AccountRegistryService(storage, contract, config)
 		registries.push(registry)
 		return registry
@@ -52,16 +56,17 @@ describe("account registry configuration isolation", { concurrency: false, timeo
 			const f = fixture(t)
 			const originalAccounts = [...config.specificAccountsOnly]
 			t.after(() => config.specificAccountsOnly.splice(0, config.specificAccountsOnly.length, ...originalAccounts))
-			const first = f.create(config)
+			const first = await f.create(config)
 			await f.discover(first)
 			assert.deepEqual(first.knownAccounts, [f.account])
 			assert.equal(config.specificAccountsOnly.length, 0)
+			const callsAfterFirst = f.getLogs.mock.callCount()
 
-			const second = f.create(config)
+			const second = await f.create(config)
 			assert.equal(second.specificAccountsMode, false)
 			assert.equal(second.knownAccounts.length, 0)
 			await f.discover(second)
-			assert.equal(f.getLogs.mock.callCount(), 2, "Each unrestricted registry must discover accounts independently")
+			assert.ok(f.getLogs.mock.callCount() > callsAfterFirst, "Each unrestricted registry must discover accounts independently")
 		})
 	}
 
@@ -70,12 +75,12 @@ describe("account registry configuration isolation", { concurrency: false, timeo
 		const config = { ...defaultSeederAccountRegistryServiceConfig, specificAccountsOnly: [] as EthereumAddress[] }
 		const storage = new InMemoryAdapter()
 		await storage.put("account-registry:account:0", f.account.toString())
-		const first = f.create(config, storage)
+		const first = await f.create(config, storage)
 		await first.init()
 		assert.deepEqual(first.knownAccounts.map(String), [f.account.toString()])
 		assert.equal(config.specificAccountsOnly.length, 0)
 
-		const second = f.create(config)
+		const second = await f.create(config)
 		assert.equal(second.specificAccountsMode, false)
 		assert.equal(second.knownAccounts.length, 0)
 		await f.discover(second)
@@ -84,7 +89,7 @@ describe("account registry configuration isolation", { concurrency: false, timeo
 	test("configured accounts remain restricted and isolated from later array mutations", async (t) => {
 		const f = fixture(t)
 		const configured = [f.account]
-		const registry = f.create({ ...defaultSeederAccountRegistryServiceConfig, specificAccountsOnly: configured })
+		const registry = await f.create({ ...defaultSeederAccountRegistryServiceConfig, specificAccountsOnly: configured })
 		const another = new EthereumAddress("0x" + "22".repeat(20))
 		configured.splice(0, 1, another)
 		assert.equal(registry.specificAccountsMode, true)

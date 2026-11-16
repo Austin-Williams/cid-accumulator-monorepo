@@ -1,3 +1,4 @@
+import { mockChain } from "./mockChain.js"
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
 import type { TestContext } from "node:test"
@@ -52,6 +53,7 @@ async function fixture(t: TestContext, payloads: Uint8Array[]) {
 	const root = await mmr.rootCID()
 	const storage = new InMemoryAdapter()
 	const contract = new AccumulatorContract(defaultLightClientAccumulatorContractConfig)
+	mockChain(t, contract, storage)
 	const getState = t.mock.method(contract, "getState", async () => state)
 	t.mock.method(contract, "getSingletonBirthdayBlockNum", async () => 1)
 	const getLogs = t.mock.method(contract, "getLeafAppendedLogs", async (from: number, to: number) =>

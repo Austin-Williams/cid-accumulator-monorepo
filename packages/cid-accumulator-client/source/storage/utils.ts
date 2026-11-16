@@ -17,6 +17,18 @@ import {
 // accumulator data in the configured storage backend.
 // ====================================================
 
+/** Remove a rolled-back suffix, including fields that a replacement append may omit. */
+export async function deleteLeafSuffix(storage: Storage, account: EthereumAddress, from: number, to: number): Promise<void> {
+	const fields = ["account", "leafIndex", "payload", "payloadCID", "blockNumber", "blockHash", "mergeLeftHashes", "previousInsertBlockNumber", "rootCidAfterInsert", "insertionTrail", "peaksWithHeightsAfterInsert"]
+	for (let i = from; i < to; i++) {
+		const prefix = `account:${account}:leaf:${i}`
+		for (const field of fields) await storage.delete(`${prefix}:${field}`)
+		await storage.delete(prefix)
+		await storage.delete(`account:${account}:leafIndex:${i}:rootCidAfterInsert`)
+		await storage.delete(`account:${account}:leafIndex:${i}:peaksWithHeightsAfterInsert`)
+	}
+}
+
 // Store a leaf record in the DB by leafIndex, splitting fields into separate keys.
 export async function putLeafRecordInDB(
 	storage: Storage,

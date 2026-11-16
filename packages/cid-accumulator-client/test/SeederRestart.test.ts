@@ -1,3 +1,4 @@
+import { mockChain } from "./mockChain.js"
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
 import type { TestContext } from "node:test"
@@ -50,6 +51,7 @@ function fixture(t: TestContext) {
 	t.mock.method(storage, "stop", () => {})
 	const account = new EthereumAddress("0x" + "ab".repeat(20))
 	const contract = new AccumulatorContract(defaultSeederAccumulatorContractConfig)
+	mockChain(t, contract, storage)
 	const chain = new MerkleMountainRange()
 	const logs: NormalizedLeafAppendedEvent[] = []
 	const trails: MMRLeafAppendedTrail[] = []

@@ -1,3 +1,4 @@
+import { mockChain } from "./mockChain.js"
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
 import type { TestContext } from "node:test"
@@ -35,6 +36,7 @@ function fixture(t: TestContext, lazyLoadEvents = true) {
 	// Model a persistent cache across stops so restart tests do not replay historical data.
 	t.mock.method(storage, "stop", () => {})
 	const contract = new AccumulatorContract(defaultLightClientAccumulatorContractConfig)
+	mockChain(t, contract, storage)
 	const logs: NormalizedLeafAppendedEvent[] = []
 	const chains = new Map<string, { mmr: MerkleMountainRange; lastBlock: number }>()
 	let latestBlock = 1
@@ -125,8 +127,9 @@ describe("light client event subscriptions", { concurrency: false, timeout: 5000
 		const received: LeafRecord[] = []
 		const reads: Promise<string | undefined>[] = []
 		f.client.subscribe((event) => {
-			received.push(event)
-			reads.push(f.client.getPayload(event.leafIndex))
+			if (event.type !== "append") return
+			received.push(event.record)
+			reads.push(f.client.getPayload(event.record.leafIndex))
 		})
 		await f.client.start()
 		await f.append(Uint8Array.of(99), new EthereumAddress("0x" + "22".repeat(20)))
@@ -181,7 +184,7 @@ describe("light client event subscriptions", { concurrency: false, timeout: 5000
 		const f = fixture(t)
 		const received: number[] = []
 		const observed: number[] = []
-		f.client.subscribe((event) => received.push(event.leafIndex))
+		f.client.subscribe((event) => { if (event.type === "append") received.push(event.record.leafIndex) })
 		const unsubscribeObserver = f.events.subscribe((event) => observed.push(event.leafIndex))
 		t.after(unsubscribeObserver)
 		await f.client.start()
@@ -204,7 +207,7 @@ describe("light client event subscriptions", { concurrency: false, timeout: 5000
 		test(`failure during ${stage} detaches the listener and retry does not duplicate it`, async (t) => {
 			const f = fixture(t)
 			const received: number[] = []
-			f.client.subscribe((event) => received.push(event.leafIndex))
+			f.client.subscribe((event) => { if (event.type === "append") received.push(event.record.leafIndex) })
 			const failure = new Error("Startup failed")
 			const fail = async () => {
 				throw failure
@@ -294,7 +297,8 @@ describe("light client event subscriptions", { concurrency: false, timeout: 5000
 		await f.append(Uint8Array.of(2))
 		await f.tick()
 		assert.equal(received.mock.callCount(), 1)
-		assert.equal(received.mock.calls[0].arguments[0].leafIndex, 1)
+		assert.equal(received.mock.calls[0].arguments[0].type, "append")
+		assert.equal(received.mock.calls[0].arguments[0].record.leafIndex, 1)
 	})
 
 	test("a throwing subscriber does not block other callbacks or later polling", async (t) => {

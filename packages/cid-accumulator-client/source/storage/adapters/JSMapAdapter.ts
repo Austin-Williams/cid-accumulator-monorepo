@@ -24,6 +24,10 @@ export class JSMapAdapter implements Storage {
 		this.filePath = filePath ?? "./db/cid-accumulator.json"
 	}
 
+	async getIdentity(): Promise<object> {
+		return this.getDatabase()
+	}
+
 	async put(key: string, value: string): Promise<void> {
 		const database = await this.getDatabase()
 		database.store.set(key.toLowerCase(), value)

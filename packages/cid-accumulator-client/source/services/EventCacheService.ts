@@ -1,3 +1,4 @@
+import { getChainState, type ChainState, type ChainSnapshot } from "./ChainState.js"
 import { EthereumAddress } from "../ethereum/EthereumAddress.js"
 import { createLogger } from "../utils/logging.js"
 import { getLeafRecordFromNormalizedLeafAppendedEvent } from "../utils/codec.js"
@@ -27,7 +28,7 @@ import type { EventCacheServiceConfig } from "./EventCacheService.types.js"
  * - "events:account:{account}:block:{blockNumber}" - complete JSON array of leaf indices for this account, including []
  *
  * Shared leaf data storage (populated via on-chain events, IPFS downloads, CID-walkbacks, MMRs, etc):
- * Never delete anything another service has already written.
+ * Invalidate shared leaf data only through coordinated chain rollback.
  *
  * "account:{address}:leaf:{leafIndex}": { // LeafRecord
  *   account: EthereumAddress,           // the account address
@@ -59,6 +60,8 @@ import type { EventCacheServiceConfig } from "./EventCacheService.types.js"
  * and notifies any subscribers of any new LeafAppended events it learns about.
  */
 export class EventCacheService implements LifecycleComponent {
+	private get chain(): Promise<ChainState> { return getChainState(this.storage, this.accumulatorContract) }
+	private chainGeneration = -1
 	private accumulatorContract: AccumulatorContract
 	public storage: Storage
 	private lazyLoadEvents: boolean = true
@@ -126,23 +129,27 @@ export class EventCacheService implements LifecycleComponent {
 		try {
 			if (!this.initialized) await this.init()
 			if (!this.isCurrentPoll(generation)) return
-			const currentBlock = await this.accumulatorContract.getBlockNumber()
+			const chain = await this.chain
+			const snapshot = await chain.snapshot()
+			const currentBlock = snapshot.block.number
 			if (!this.isCurrentPoll(generation)) return
-			const savedCursor = await this.storage.get("events:latestPolledBlock")
-			if (!this.isCurrentPoll(generation)) return
-			if (savedCursor === undefined) {
-				// Keep the first lazy start at the head, but make even a stop before the first tick resumable.
-				await this.storage.put("events:latestPolledBlock", currentBlock.toString())
+			await chain.commit(snapshot, async () => {
+				const savedCursor = await this.storage.get("events:latestPolledBlock")
 				if (!this.isCurrentPoll(generation)) return
-				this.setPollingCursor(currentBlock)
-			} else {
-				const cursor = Number(savedCursor)
-				if (!/^\d+$/.test(savedCursor) || !Number.isSafeInteger(cursor)) {
-					throw new Error(`[EventCacheService] Invalid saved polling cursor: ${savedCursor}`)
+				if (savedCursor === undefined) {
+					// Keep the first lazy start at the head, but make even a stop before the first tick resumable.
+					await this.storage.put("events:latestPolledBlock", currentBlock.toString())
+					if (!this.isCurrentPoll(generation)) return
+					this.setPollingCursor(currentBlock)
+				} else {
+					const cursor = Number(savedCursor)
+					if (!/^\d+$/.test(savedCursor) || !Number.isSafeInteger(cursor)) {
+						throw new Error(`[EventCacheService] Invalid saved polling cursor: ${savedCursor}`)
+					}
+					// Another service sharing storage may have advanced farther than this one's subscribers.
+					this.setPollingCursor(this.hasPollingCursor ? Math.min(this.lastPolledBlockNum, cursor) : cursor)
 				}
-				// Another service sharing storage may have advanced farther than this one's subscribers.
-				this.setPollingCursor(this.hasPollingCursor ? Math.min(this.lastPolledBlockNum, cursor) : cursor)
-			}
+			})
 
 			if (this.lazyLoadEvents === false) {
 				this.logger.log("Syncing all historical events (lazyLoadEvents=false). This may take some time.")
@@ -223,58 +230,48 @@ export class EventCacheService implements LifecycleComponent {
 	 * @private
 	 */
 	private async pollForNewEvents(currentBlock?: number, generation = this.pollingGeneration): Promise<void> {
-		currentBlock ??= await this.accumulatorContract.getBlockNumber()
+		const chain = await this.chain
+		const snapshot = await chain.snapshot()
 		if (!this.isCurrentPoll(generation)) return
-
-		// If we're already at the latest block, nothing to do
-		if (currentBlock <= this.lastPolledBlockNum) return
-
-		// Process blocks in batches to avoid overwhelming the RPC
-		const batchSize = 10
-		for (let startBlock = this.lastPolledBlockNum + 1; startBlock <= currentBlock; startBlock += batchSize) {
-			// If we're no longer running, exit early
-			if (!this.isCurrentPoll(generation)) return
-
-			const endBlock = Math.min(startBlock + batchSize - 1, currentBlock)
-
-			// Get events for this batch
-			const accounts = this.getQueryAccounts()
-			const events: NormalizedLeafAppendedEvent[] = await this.accumulatorContract.getLeafAppendedLogs(
-				startBlock,
-				endBlock,
-				accounts
-			)
-			if (!this.isCurrentPoll(generation)) return
-
-			// Group events by block
-			const blockToEvents = new Map<number, NormalizedLeafAppendedEvent[]>()
-			for (const event of events) {
-				if (!blockToEvents.has(event.blockNumber)) {
-					blockToEvents.set(event.blockNumber, [])
-				}
-				blockToEvents.get(event.blockNumber)!.push(event)
-				this.logger.log(
-					`Account ${event.account} has a new leaf with index ${event.leafIndex} in block ${event.blockNumber}`
-				)
-			}
-
-			// Process each block
-			for (let blockNum = startBlock; blockNum <= endBlock; blockNum++) {
-				if (!this.isCurrentPoll(generation)) return
-				if (blockNum <= this.lastPolledBlockNum) continue
-				const blockEvents = blockToEvents.get(blockNum) || []
-				await this.processEventsForBlock(blockNum, blockEvents, accounts)
-				if (!this.isCurrentPoll(generation)) return
-
-				// Advance only after processing and persisting the cursor have succeeded.
-				await this.storage.put("events:latestPolledBlock", blockNum.toString())
-				if (!this.isCurrentPoll(generation)) return
-				this.lastPolledBlockNum = blockNum
-				this.announcedEvents.delete(blockNum)
-			}
+		const savedCursor = await chain.read(() => this.storage.get("events:latestPolledBlock"))
+		if (savedCursor !== undefined && Number(savedCursor) < this.lastPolledBlockNum) {
+			this.setPollingCursor(Number(savedCursor))
+			this.announcedEvents.clear()
 		}
+		if (snapshot.generation !== this.chainGeneration) {
+			this.announcedEvents.clear()
+			this.chainGeneration = snapshot.generation
+			if (savedCursor !== undefined) this.setPollingCursor(Math.min(this.lastPolledBlockNum, Number(savedCursor)))
+		}
+		currentBlock = Math.min(currentBlock ?? snapshot.block.number, snapshot.block.number)
+		const accounts = this.getQueryAccounts()
+		for (let startBlock = this.lastPolledBlockNum + 1; startBlock <= currentBlock; startBlock += 10) {
+			const endBlock = Math.min(startBlock + 9, currentBlock)
+			const events = await this.fetchRange(startBlock, endBlock, accounts, snapshot)
+			await chain.ensureCanonical(snapshot)
+			await chain.commit(snapshot, async () => {
+				for (let block = startBlock; block <= endBlock; block++) {
+					if (!this.isCurrentPoll(generation)) return
+					await this.processEventsForBlock(block, events.filter(event => event.blockNumber === block), accounts)
+					await this.storage.put("events:latestPolledBlock", String(block))
+					this.lastPolledBlockNum = block
+					this.announcedEvents.delete(block)
+				}
+			})
+		}
+	}
 
-		this.logger.log(`Processed events up to block ${this.lastPolledBlockNum}`)
+	private async fetchRange(from: number, to: number, accounts: EthereumAddress[] | undefined, snapshot: ChainSnapshot): Promise<NormalizedLeafAppendedEvent[]> {
+		const chain = await this.chain
+		const finalized = await this.accumulatorContract.getBlock("finalized")
+		const events: NormalizedLeafAppendedEvent[] = []
+		const historicalEnd = Math.min(to, finalized.number, snapshot.block.number)
+		if (from <= historicalEnd) events.push(...await this.accumulatorContract.getLeafAppendedLogs(from, historicalEnd, accounts))
+		for (let number = Math.max(from, historicalEnd + 1); number <= to; number++) {
+			const block = await chain.getBlock(snapshot, number)
+			events.push(...await this.accumulatorContract.getLeafAppendedLogs(number, number, accounts, block.hash))
+		}
+		return events
 	}
 
 	/**
@@ -291,6 +288,8 @@ export class EventCacheService implements LifecycleComponent {
 		toBlock: number
 	): Promise<LeafRecord[]> {
 		if (!this.initialized) await this.init()
+		const chain = await this.chain
+		const snapshot = await chain.snapshot()
 
 		// Get leaf records from DB
 		const leafRecords: LeafRecord[] = []
@@ -302,12 +301,12 @@ export class EventCacheService implements LifecycleComponent {
 			}
 
 			const accountLeafIndicesKey = `events:account:${account.toString()}:block:${blockNum}`
-			const accountLeafIndicesStr = await this.storage.get(accountLeafIndicesKey)
+			const accountLeafIndicesStr = await (await this.chain).read(() => this.storage.get(accountLeafIndicesKey))
 			if (accountLeafIndicesStr) {
 				try {
 					const leafIndices = JSON.parse(accountLeafIndicesStr) as number[]
 					for (const leafIndex of leafIndices) {
-						const leafRecord = await getLeafRecordFromDB(this.storage, account, leafIndex)
+						const leafRecord = await (await this.chain).read(() => getLeafRecordFromDB(this.storage, account, leafIndex))
 						if (leafRecord) leafRecords.push(leafRecord)
 					}
 				} catch (e) {
@@ -316,6 +315,7 @@ export class EventCacheService implements LifecycleComponent {
 			}
 		}
 
+		await chain.ensureCanonical(snapshot)
 		return leafRecords
 	}
 
@@ -368,7 +368,9 @@ export class EventCacheService implements LifecycleComponent {
 		if (!this.initialized) await this.init()
 
 		// Get latest block
-		const latestBlockStr = await this.accumulatorContract.getBlockNumber()
+		const chain = await this.chain
+		const snapshot = await chain.snapshot()
+		const latestBlockStr = snapshot.block.number
 		if (!latestBlockStr) throw new Error("[EventCoordinator] Cannot get latest block number")
 		const latestBlock = Number(latestBlockStr)
 		const accounts = this.getQueryAccounts()
@@ -391,11 +393,8 @@ export class EventCacheService implements LifecycleComponent {
 
 			// Fetch events for the entire batch at once
 			// If specificAccounts is defined, filter events only for those accounts
-			const events: NormalizedLeafAppendedEvent[] = await this.accumulatorContract.getLeafAppendedLogs(
-				startBlock,
-				endBlock,
-				accounts
-			)
+			const events = await this.fetchRange(startBlock, endBlock, accounts, snapshot)
+			await chain.ensureCanonical(snapshot)
 
 			// Process events by block
 			const blockToEvents = new Map<number, NormalizedLeafAppendedEvent[]>()
@@ -413,7 +412,7 @@ export class EventCacheService implements LifecycleComponent {
 			for (let blockNum = startBlock; blockNum <= endBlock; blockNum++) {
 				if (!(await this.isBlockCached(blockNum, accounts))) {
 					const blockEvents = blockToEvents.get(blockNum) || []
-					await this.processEventsForBlock(blockNum, blockEvents, accounts)
+					await chain.commit(snapshot, () => this.processEventsForBlock(blockNum, blockEvents, accounts))
 				}
 			}
 		}
@@ -437,62 +436,64 @@ export class EventCacheService implements LifecycleComponent {
 	}): Promise<number> {
 		if (!this.initialized) await this.init()
 
-		let deletedCount = 0
-		const keysToDelete: string[] = []
+		return (await this.chain).read(async () => {
+			let deletedCount = 0
+			const keysToDelete: string[] = []
 
-		// Normalize account if provided
-		const normalizedAccount = options?.forAccount ? options.forAccount.toLowerCase() : undefined
+			// Normalize account if provided
+			const normalizedAccount = options?.forAccount ? options.forAccount.toLowerCase() : undefined
 
-		// Iterate through all keys in the database
-		for await (const { key } of this.storage.iterate("events:")) {
-			let shouldDelete = true
+			// Iterate through all keys in the database
+			for await (const { key } of this.storage.iterate("events:")) {
+				let shouldDelete = true
 
-			// Apply block number filter if specified
-			if (options?.beforeBlock !== undefined || options?.afterBlock !== undefined) {
-				// Extract block number from key
-				const blockMatch = key.match(/:block:(\d+)$/)
-				if (blockMatch) {
-					const blockNum = parseInt(blockMatch[1], 10)
+				// Apply block number filter if specified
+				if (options?.beforeBlock !== undefined || options?.afterBlock !== undefined) {
+					// Extract block number from key
+					const blockMatch = key.match(/:block:(\d+)$/)
+					if (blockMatch) {
+						const blockNum = parseInt(blockMatch[1], 10)
 
-					// Skip if block is not before the specified block
-					if (options?.beforeBlock !== undefined && blockNum >= options.beforeBlock) {
-						shouldDelete = false
+						// Skip if block is not before the specified block
+						if (options?.beforeBlock !== undefined && blockNum >= options.beforeBlock) {
+							shouldDelete = false
+						}
+
+						// Skip if block is not after the specified block
+						if (options?.afterBlock !== undefined && blockNum <= options.afterBlock) {
+							shouldDelete = false
+						}
 					}
+				}
 
-					// Skip if block is not after the specified block
-					if (options?.afterBlock !== undefined && blockNum <= options.afterBlock) {
-						shouldDelete = false
-					}
+				// Clearing one account invalidates block-wide completeness, including blocks with no events.
+				// Other accounts' indices and the shared leaf data remain usable.
+				if (
+					normalizedAccount &&
+					!key.startsWith(`events:account:${normalizedAccount}:`) &&
+					!key.startsWith("events:complete:block:") &&
+					!key.startsWith("events:block:")
+				) {
+					shouldDelete = false
+				}
+
+				if (shouldDelete) {
+					keysToDelete.push(key)
 				}
 			}
 
-			// Clearing one account invalidates block-wide completeness, including blocks with no events.
-			// Other accounts' indices and the shared leaf data remain usable.
-			if (
-				normalizedAccount &&
-				!key.startsWith(`events:account:${normalizedAccount}:`) &&
-				!key.startsWith("events:complete:block:") &&
-				!key.startsWith("events:block:")
-			) {
-				shouldDelete = false
+			// Invalidate global coverage before removing any account indices it describes.
+			keysToDelete.sort(
+				(a, b) => Number(b.startsWith("events:complete:block:")) - Number(a.startsWith("events:complete:block:"))
+			)
+			for (const key of keysToDelete) {
+				await this.storage.delete(key)
+				deletedCount++
 			}
 
-			if (shouldDelete) {
-				keysToDelete.push(key)
-			}
-		}
-
-		// Invalidate global coverage before removing any account indices it describes.
-		keysToDelete.sort(
-			(a, b) => Number(b.startsWith("events:complete:block:")) - Number(a.startsWith("events:complete:block:"))
-		)
-		for (const key of keysToDelete) {
-			await this.storage.delete(key)
-			deletedCount++
-		}
-
-		this.logger.log(`Cleared ${deletedCount} event cache entries`)
-		return deletedCount
+			this.logger.log(`Cleared ${deletedCount} event cache entries`)
+			return deletedCount
+		})
 	}
 
 	/**
@@ -528,14 +529,16 @@ export class EventCacheService implements LifecycleComponent {
 		accounts?: EthereumAddress[],
 		forceRefresh: boolean = false
 	): Promise<void> {
-		if (!forceRefresh && (await this.isBlockCached(blockNumber, accounts))) return
-
-		const events: NormalizedLeafAppendedEvent[] = await this.accumulatorContract.getLeafAppendedLogs(
-			blockNumber,
-			blockNumber,
-			accounts
-		)
-		await this.processEventsForBlock(blockNumber, events, accounts)
+		const chain = await this.chain
+		const snapshot = await chain.snapshot()
+		if (snapshot.generation !== this.chainGeneration) {
+			this.announcedEvents.clear()
+			this.chainGeneration = snapshot.generation
+		}
+		if (!forceRefresh && await chain.read(() => this.isBlockCached(blockNumber, accounts))) return
+		const events = await this.fetchRange(blockNumber, blockNumber, accounts, snapshot)
+		await chain.ensureCanonical(snapshot)
+		await chain.commit(snapshot, () => this.processEventsForBlock(blockNumber, events, accounts))
 	}
 
 	// PRIVATE METHODS
@@ -579,6 +582,7 @@ export class EventCacheService implements LifecycleComponent {
 	private async storeLeafRecord(event: NormalizedLeafAppendedEvent): Promise<void> {
 		const leafRecord = getLeafRecordFromNormalizedLeafAppendedEvent(event)
 
+		await (await this.chain).trackAccount(event.account, event.leafIndex + 1, event.blockNumber)
 		await putLeafRecordInDB(this.storage, event.account, event.leafIndex, leafRecord)
 	}
 
