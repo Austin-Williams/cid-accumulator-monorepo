@@ -9,6 +9,8 @@ export class LightClient extends DataClient implements LifecycleComponent {
 	spinUpOrder: LifecycleComponent[]
 	initialized: boolean = false
 	running: boolean = false
+	private startPromise?: Promise<void>
+	private initializedComponents: LifecycleComponent[] = []
 
 	constructor(accountAddress: EthereumAddress, dependencies: DataClientDependencies) {
 		super(accountAddress, dependencies)
@@ -35,9 +37,13 @@ export class LightClient extends DataClient implements LifecycleComponent {
 		this.logger.log("Initializing...")
 
 		try {
-			for (const component of this.spinUpOrder) await component.init()
+			for (const component of this.spinUpOrder) {
+				await component.init()
+				this.initializedComponents.push(component)
+			}
 		} catch (error) {
 			this.logger.error(`Initialization failed: ${error}`)
+			this.stopInitializedComponents()
 			throw error
 		}
 
@@ -50,14 +56,23 @@ export class LightClient extends DataClient implements LifecycleComponent {
 	 * @dev Dependencies are started in the correct order
 	 * @returns Promise that resolves when the service is started
 	 */
-	async start(): Promise<void> {
+	start(): Promise<void> {
+		if (this.startPromise) return this.startPromise
 		if (this.running) {
 			this.logger.warn("Already running. Skipping start.")
-			return
+			return Promise.resolve()
 		}
 
 		this.running = true
+		this.startPromise = Promise.resolve()
+			.then(() => this.startServices())
+			.finally(() => {
+				this.startPromise = undefined
+			})
+		return this.startPromise
+	}
 
+	private async startServices(): Promise<void> {
 		try {
 			if (!this.initialized) await this.init()
 			this.logger.log("Starting services...")
@@ -71,6 +86,7 @@ export class LightClient extends DataClient implements LifecycleComponent {
 			}
 		} catch (error) {
 			this.logger.error(`Failed to start light client services: ${error}`)
+			this.stopInitializedComponents()
 			throw error
 		}
 
@@ -82,15 +98,25 @@ export class LightClient extends DataClient implements LifecycleComponent {
 	 * @dev Dependencies are stopped in reverse order of initialization
 	 */
 	stop(): void {
-		if (!this.running) {
+		if (!this.running && this.initializedComponents.length === 0) {
 			this.logger.warn("Not running, nothing to stop")
 			return
 		}
 
 		this.logger.log("Stopping services...")
 
+		const errors = this.stopInitializedComponents()
+		if (errors.length > 0) {
+			const aggMsg = errors.map((e, i) => `[${i + 1}] ${e.message}`).join("; ")
+			throw new Error(`One or more errors occurred during shutdown: ${aggMsg}`)
+		}
+		this.logger.log("Gracefully shut down")
+	}
+
+	private stopInitializedComponents(): Error[] {
 		const errors: Error[] = []
-		for (const component of this.spinUpOrder.slice().reverse()) {
+		// A failed storage init must not trigger stop(), which could persist an empty store.
+		for (const component of this.initializedComponents.splice(0).reverse()) {
 			try {
 				component.stop()
 			} catch (error) {
@@ -102,10 +128,6 @@ export class LightClient extends DataClient implements LifecycleComponent {
 
 		this.running = false
 		this.initialized = false
-		if (errors.length > 0) {
-			const aggMsg = errors.map((e, i) => `[${i + 1}] ${e.message}`).join("; ")
-			throw new Error(`One or more errors occurred during shutdown: ${aggMsg}`)
-		}
-		this.logger.log("Gracefully shut down")
+		return errors
 	}
 }

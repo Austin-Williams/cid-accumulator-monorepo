@@ -28,6 +28,7 @@ export class DataClient {
 	public readonly eventCacheService: EventCacheService
 
 	public syncing: boolean = false
+	private syncPromise?: Promise<void>
 	private subscribers: Array<(newLeafRecord: LeafRecord) => void> = []
 	protected logger: Logger
 
@@ -53,21 +54,24 @@ export class DataClient {
 
 	/**
 	 * @notice Syncs this account's data from the latest leaf index down to the last contiguous leaf index in storage
-	 * @dev This method does not actively subscribe to new events. It sets the syncing flag to prevent
-	 * concurrent sync operations and calls syncBackwardsFromLatest to perform the actual sync.
+	 * @dev Concurrent callers share the current sync's result or error. Failed syncs can be retried.
 	 * @return A promise that resolves when syncing is complete
 	 */
-	public async sync(): Promise<void> {
-		if (this.syncing) {
-			this.logger.log(`Already syncing, will resolve the promise when complete`)
-			// wait for the sync to complete
-			while (this.syncing) await new Promise((resolve) => setTimeout(resolve, 1000))
-			return
+	public sync(): Promise<void> {
+		if (this.syncPromise) {
+			return this.syncPromise
 		}
 		this.syncing = true
-		await this.syncBackwardsFromLatest()
-		this.completedInitialSync = true
-		this.syncing = false
+		this.syncPromise = Promise.resolve()
+			.then(() => this.syncBackwardsFromLatest())
+			.then(() => {
+				this.completedInitialSync = true
+			})
+			.finally(() => {
+				this.syncing = false
+				this.syncPromise = undefined
+			})
+		return this.syncPromise
 	}
 
 	/**
