@@ -39,10 +39,10 @@ library PeaksCacheLib {
 	/// @param store Reference to the contract's storage peaks array.
 	function flush(PeaksCache memory cache, bytes32[32] storage store) internal {
 		uint256 mask = cache.dirtyMask;
-		if (mask == 0) return;
-		// iterate with unchecked increments
-		for (uint256 i = 0; i < 32; ) {
-			if (((mask >> i) & 1) == 1) store[i] = cache.peakValues[i];
+		// Shift each visited bit out of the mask and stop after the last dirty slot.
+		for (uint256 i = 0; mask != 0; ) {
+			if ((mask & 1) == 1) store[i] = cache.peakValues[i];
+			mask >>= 1;
 			// prettier-ignore
 			unchecked {++i;}
 		}

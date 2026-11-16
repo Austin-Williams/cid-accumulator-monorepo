@@ -404,8 +404,8 @@ Execution gas excludes the transaction's intrinsic gas. Total transaction gas in
 | Single leaf, 9 merges | 40,397 | 62,253 |
 | Single leaf, 10 merges | 43,414 | 65,270 |
 | First leaf for a new account | 50,594 | 72,450 |
-| Batch of 8 leaves, initialized accumulator | 71,339 | 99,091 |
-| Batch of 32 leaves, initialized accumulator | 226,294 | 273,270 |
+| Batch of 8 leaves, initialized accumulator | 69,028 | 96,780 |
+| Batch of 32 leaves, initialized accumulator | 224,139 | 271,115 |
 
 Across sequential appends, 75% require zero or one merge, and 87.5% require at most two. Exact merge depth `d` occurs once every `2^(d + 1)` appends; deeper merges become exponentially less frequent. Gas also depends on storage initialization and payload size, so these figures are representative measurements rather than fixed prices for all inserts.
 
