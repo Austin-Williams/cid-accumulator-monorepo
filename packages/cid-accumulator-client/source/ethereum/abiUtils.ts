@@ -79,48 +79,52 @@ export function parseAccumulatorMetaBits(mmrMetaBits: bigint): AccumulatorMetada
 
 export async function parseLeafAppendedLog(log: RawEthLog): Promise<NormalizedLeafAppendedEvent> {
 	const data = log.data.startsWith("0x") ? log.data.slice(2) : log.data
-	if (data.length < 256 || data.length % 2 !== 0 || /[^0-9a-fA-F]/.test(data)) {
+	if (data.length < 128 || data.length % 2 !== 0 || /[^0-9a-fA-F]/.test(data)) {
 		throw new Error("Invalid LeafAppended ABI data")
 	}
 	const byteLength = BigInt(data.length / 2)
 	const readWord = (offset: number): bigint => BigInt("0x" + data.slice(offset * 2, (offset + 32) * 2))
-	const readOffset = (headOffset: number): number => {
-		const offset = readWord(headOffset)
-		if (offset < 128n || offset % 32n !== 0n || offset > byteLength - 32n) {
-			throw new Error("Invalid LeafAppended ABI offset")
-		}
-		return Number(offset)
+	const metadata = readWord(0)
+	if (metadata > 0xffffffffffffffffn) {
+		throw new Error("Invalid LeafAppended metadata")
+	}
+	// Validate complete uint256 offsets and lengths before allocating decoded data.
+	const offset = readWord(32)
+	if (offset < 64n || offset % 32n !== 0n || offset > byteLength - 32n) {
+		throw new Error("Invalid LeafAppended ABI offset")
+	}
+	const combinedLen = readWord(Number(offset))
+	const paddedLen = ((combinedLen + 31n) / 32n) * 32n
+	if (offset + 32n + paddedLen > byteLength) {
+		throw new Error("Invalid LeafAppended combined length")
 	}
 
-	// Validate complete uint256 offsets and lengths before allocating decoded data.
-	const payloadOffset = readOffset(64)
-	const mergeLeftHashesOffset = readOffset(96)
-	const payloadLen = readWord(payloadOffset)
-	const mergeLeftHashesLen = readWord(mergeLeftHashesOffset)
-	const paddedPayloadLen = ((payloadLen + 31n) / 32n) * 32n
-	if (BigInt(payloadOffset) + 32n + paddedPayloadLen > byteLength) {
-		throw new Error("Invalid LeafAppended payload length")
-	}
+	// Unpack before converting to Number: the combined uint64 can exceed safe integer precision.
+	const leafIndex = metadata & 0xffffffffn
+	let mergeCount = 0
+	for (let index = leafIndex; (index & 1n) !== 0n; index >>= 1n) mergeCount++
+	const mergeHashesLen = BigInt(mergeCount) * 32n
 	// Each merge consumes a peak; the contract's five-bit peak count is at most 31.
-	if (mergeLeftHashesLen > 31n || BigInt(mergeLeftHashesOffset) + 32n + mergeLeftHashesLen * 32n > byteLength) {
+	if (mergeCount > 31 || combinedLen < mergeHashesLen) {
 		throw new Error("Invalid LeafAppended merge hash count")
 	}
 
-	const payloadStart = (payloadOffset + 32) * 2
-	const payload = hexStringToUint8Array(data.slice(payloadStart, payloadStart + Number(payloadLen) * 2))
+	// Hashes occupy the tail; their count follows from the leaf index, so no separate length is needed.
+	const payloadStart = (Number(offset) + 32) * 2
+	const hashesStart = payloadStart + Number(combinedLen - mergeHashesLen) * 2
+	const payload = hexStringToUint8Array(data.slice(payloadStart, hashesStart))
 	const mergeLeftHashes: CID<unknown, 113, 27, 1>[] = []
-	const mergeCount = Number(mergeLeftHashesLen)
 	for (let i = 0; i < mergeCount; i++) {
-		const start = (mergeLeftHashesOffset + 32 + i * 32) * 2
+		const start = hashesStart + i * 64
 		mergeLeftHashes.push(contractPeakHexToMmrCid(hexStringToUint8Array(data.slice(start, start + 64))))
 	}
 
 	return {
 		// Account is the first indexed topic (topic[1])
 		account: EthereumAddress.fromString("0x" + log.topics[1].slice(26)),
-		leafIndex: Number(readWord(0)),
+		leafIndex: Number(leafIndex),
 		payload,
-		previousInsertBlockNumber: Number(readWord(32)),
+		previousInsertBlockNumber: Number(metadata >> 32n),
 		mergeLeftHashes,
 		blockNumber: Number(log.blockNumber),
 		...(log.blockHash === undefined ? {} : { blockHash: log.blockHash.toLowerCase() }),

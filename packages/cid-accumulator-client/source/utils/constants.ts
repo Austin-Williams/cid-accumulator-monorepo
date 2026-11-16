@@ -70,27 +70,15 @@ export const CIDAccumulatorSingletonABI = [
 			},
 			{
 				indexed: false,
-				internalType: "uint256",
-				name: "leafIndex",
-				type: "uint256",
-			},
-			{
-				indexed: false,
-				internalType: "uint256",
-				name: "previousInsertBlockNumber",
-				type: "uint256",
+				internalType: "uint64",
+				name: "metadata",
+				type: "uint64",
 			},
 			{
 				indexed: false,
 				internalType: "bytes",
-				name: "payload",
+				name: "payloadAndMergeHashes",
 				type: "bytes",
-			},
-			{
-				indexed: false,
-				internalType: "bytes32[]",
-				name: "mergeLeftHashes",
-				type: "bytes32[]",
 			},
 		],
 		name: "LeafAppended",
@@ -205,4 +193,4 @@ export const CIDAccumulatorSingletonABI = [
 	},
 ]
 
-export const LEAF_APPENDED_EVENT_SIGNATURE = "LeafAppended(address,uint256,uint256,bytes,bytes32[])"
+export const LEAF_APPENDED_EVENT_SIGNATURE = "LeafAppended(address,uint64,bytes)"

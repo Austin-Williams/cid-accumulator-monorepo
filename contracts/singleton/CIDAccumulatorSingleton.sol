@@ -23,12 +23,13 @@ contract CIDAccumulatorSingleton {
 	error DataBlockTooLargeForIPFS(uint256 actualSize);
 
 	// EVENTS
+	/// @dev metadata: low 32 bits = leaf index, high 32 bits = previous insertion block.
+	/// @dev payloadAndMergeHashes: raw payload followed by the consumed peaks' 32-byte hashes.
+	/// The hash count is the number of trailing one bits in the leaf index.
 	event LeafAppended(
 		address indexed account,
-		uint256 leafIndex,
-		uint256 previousInsertBlockNumber,
-		bytes payload,
-		bytes32[] mergeLeftHashes
+		uint64 metadata,
+		bytes payloadAndMergeHashes
 	);
 
 	event NewAccountInitialized(address account);
@@ -143,13 +144,7 @@ contract CIDAccumulatorSingleton {
 		peaks[peakCount] = carryHash; // SSTORE
 
 		// Finalize leaf insertion: emit event and update packed bits.
-		emit LeafAppended(
-			msg.sender,
-			packedBits.getLeafCount(),
-			packedBits.getPreviousInsertBlockNum(),
-			payload,
-			mergeLeftHashes
-		);
+		_emitLeafAppended(packedBits, payload, mergeLeftHashes);
 		return packedBits.updateMetaBits(peakCount, numMerges, currentBlock);
 	}
 
@@ -190,14 +185,30 @@ contract CIDAccumulatorSingleton {
 		peaksCache.setPeak(peakCount, carryHash); // Cache the hash of the DAG-CBOR encoded link node
 
 		// Finalize leaf insertion: emit event and update packed bits.
-		emit LeafAppended(
-			msg.sender,
-			packedBits.getLeafCount(),
-			packedBits.getPreviousInsertBlockNum(),
-			payload, // This is NOT DAG-CBOR encoded
-			mergeLeftHashes // These are the hashes of the DAG-CBOR encoded nodes on the left of each _mergeNodes for this merge
-		);
+		_emitLeafAppended(packedBits, payload, mergeLeftHashes);
 
 		return packedBits.updateMetaBits(peakCount, numMerges, currentBlock);
+	}
+
+	/// @dev Emits the standard ABI encoding directly, using one temporary buffer for the combined byte string.
+	function _emitLeafAppended(uint256 packedBits, bytes calldata payload, bytes32[] memory mergeLeftHashes) internal {
+		bytes32 eventTopic = LeafAppended.selector;
+		assembly ("memory-safe") {
+			// The buffer is only used by LOG2; no memory allocation escapes this helper.
+			let ptr := mload(0x40)
+			let hashesLength := shl(5, mload(mergeLeftHashes))
+			let bodyLength := add(payload.length, hashesLength)
+			// ABI head: uint64 metadata and offset to the bytes tail.
+			// Leaf count and previous insertion block occupy adjacent metadata bits 165..228.
+			mstore(ptr, and(shr(165, packedBits), 0xffffffffffffffff))
+			mstore(add(ptr, 32), 64)
+			mstore(add(ptr, 64), bodyLength)
+			calldatacopy(add(ptr, 96), payload.offset, payload.length)
+			// Copy the array contents, excluding its length word, immediately after the payload.
+			mcopy(add(add(ptr, 96), payload.length), add(mergeLeftHashes, 32), hashesLength)
+			// Clear padding even when this temporary buffer held data from an earlier append.
+			mstore(add(add(ptr, 96), bodyLength), 0)
+			log2(ptr, add(96, and(add(bodyLength, 31), not(31))), eventTopic, caller())
+		}
 	}
 }

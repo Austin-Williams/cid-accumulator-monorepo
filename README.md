@@ -76,18 +76,16 @@ Each call to `appendLeaf` causes the accumulator contract to emit an event:
 event LeafAppended(
   // your account address
   address indexed account,
-  // the index of the leaf that was appended to your account's accumulator
-  uint256 leafIndex,
-  // the block number of the previous insert for your accumulator (for efficient CID walkback)
-  uint256 previousInsertBlockNumber,
-  // the data that was appended
-  bytes payload,
-  // data needed to compute previous root CID from current root CID
-  bytes32[] mergeLeftHashes
+  // low 32 bits: leaf index; high 32 bits: previous insertion block
+  uint64 metadata,
+  // raw payload followed by the 32-byte merge hashes needed for CID walkback
+  bytes payloadAndMergeHashes
 );
 ```
 
-For 32-byte payloads and initialized storage, inserts with zero, one, or two merges use approximately 15.0k–18.8k execution gas. See below for measurement settings and total transaction costs.
+The number of merge hashes is the number of trailing one bits in the leaf index. These hashes occupy the end of `payloadAndMergeHashes`, in the order the peaks were consumed; everything before them is the payload. For example, leaf index 3 (binary `11`) has two merge hashes, so the last 64 bytes are hashes. The client unpacks this event into the usual `leafIndex`, `previousInsertBlockNumber`, `payload`, and `mergeLeftHashes` fields. When decoding manually in JavaScript, unpack `metadata` with `BigInt` before converting either 32-bit field to `Number`.
+
+For 32-byte payloads and initialized storage, inserts with zero, one, or two merges use approximately 14.0k–17.7k execution gas. See below for measurement settings and total transaction costs.
 
 ## How the off-chain component works
 
@@ -392,20 +390,20 @@ The execution gas cost of `appendLeaf` depends on how many **merge steps** are t
 
 | Merge Depth | Description                      | **Approx Gas** |
 | ----------- | -------------------------------- | -------------- |
-| 0           | No merges (new peak at height 0) | ≈ 15.0k gas    |
-| 1           | Merge with 1 peak  → height 1    | ≈ 15.9k gas    |
-| 2           | Merge with 2 peaks → height 2    | ≈ 18.8k gas    |
-| 3           | Merge with 3 peaks → height 3    | ≈ 21.8k gas    |
-| 4           | Merge with 4 peaks → height 4    | ≈ 24.7k gas    |
-| 5           | Merge with 5 peaks → height 5    | ≈ 27.7k gas    |
-| 6           | Merge with 6 peaks → height 6    | ≈ 30.7k gas    |
-| 7           | Merge with 7 peaks → height 7    | ≈ 33.6k gas    |
-| 8           | Merge with 8 peaks → height 8    | ≈ 36.6k gas    |
-| 9           | Merge with 9 peaks → height 9    | ≈ 39.5k gas    |
-| 10          | Merge with 10 peaks → height 10  | ≈ 42.5k gas    |
+| 0           | No merges (new peak at height 0) | ≈ 14.0k gas    |
+| 1           | Merge with 1 peak  → height 1    | ≈ 14.8k gas    |
+| 2           | Merge with 2 peaks → height 2    | ≈ 17.7k gas    |
+| 3           | Merge with 3 peaks → height 3    | ≈ 20.6k gas    |
+| 4           | Merge with 4 peaks → height 4    | ≈ 23.5k gas    |
+| 5           | Merge with 5 peaks → height 5    | ≈ 26.3k gas    |
+| 6           | Merge with 6 peaks → height 6    | ≈ 29.2k gas    |
+| 7           | Merge with 7 peaks → height 7    | ≈ 32.1k gas    |
+| 8           | Merge with 8 peaks → height 8    | ≈ 34.9k gas    |
+| 9           | Merge with 9 peaks → height 9    | ≈ 37.8k gas    |
+| 10          | Merge with 10 peaks → height 10  | ≈ 40.7k gas    |
 
 
-> ℹ️ Most inserts (87.5%) fall in the **15.0K–18.8K gas** range. Deeper merges are **exponentially rare**:
+> ℹ️ Most inserts (87.5%) fall in the **14.0K–17.7K gas** range. Deeper merges are **exponentially rare**:
 >
 > - Merge depth 3 happens once every 16 inserts
 > - Merge depth 6 happens once every 128 inserts
@@ -415,26 +413,26 @@ For example, if you insert `2^20` entries (just over 1 million), here’s how of
 
 | Merge Depth | Inserts (%) | **Approx Gas** |
 | ----------- | ----------- | -------------- |
-| 0           | 50.0%       | ≈ 15 .0 k      |
-| 1           | 25.0%       | ≈ 15 .9 k      |
-| 2           | 12.5%       | ≈ 18 .8 k      |
-| 3           | 6.25%       | ≈ 21 .8 k      |
-| 4           | 3.125%      | ≈ 24 .7 k      |
-| 5           | 1.5625%     | ≈ 27 .7 k      |
-| 6           | 0.78125%    | ≈ 30 .7 k      |
-| 7           | 0.390625%   | ≈ 33 .6 k      |
-| 8           | 0.1953125%  | ≈ 36 .6 k      |
-| 9           | 0.09765625% | ≈ 39 .5 k      |
-| 10          | 0.048828125%| ≈ 42 .5 k      |
+| 0           | 50.0%       | ≈ 14 .0 k      |
+| 1           | 25.0%       | ≈ 14 .8 k      |
+| 2           | 12.5%       | ≈ 17 .7 k      |
+| 3           | 6.25%       | ≈ 20 .6 k      |
+| 4           | 3.125%      | ≈ 23 .5 k      |
+| 5           | 1.5625%     | ≈ 26 .3 k      |
+| 6           | 0.78125%    | ≈ 29 .2 k      |
+| 7           | 0.390625%   | ≈ 32 .1 k      |
+| 8           | 0.1953125%  | ≈ 34 .9 k      |
+| 9           | 0.09765625% | ≈ 37 .8 k      |
+| 10          | 0.048828125%| ≈ 40 .7 k      |
 
 
 > ✅ Even after a million inserts, **87.5%** of them will require **two or fewer merges**, keeping gas costs low and consistent.
 
 So the gas cost is determined only by that insert’s merge activity — **not** by the total size of the data set.
 
-The mean steady-state cost per insert is ≈ 16.9k gas.
+The mean steady-state cost per insert is ≈ 15.9k gas.
 
-Note: The very first time an address appends data to the accumulator, the execution cost is about 50.3k gas because two empty storage slots need to be unzeroed when initializing the account's accumulator.
+Note: The very first time an address appends data to the accumulator, the execution cost is about 49.3k gas because two empty storage slots need to be unzeroed when initializing the account's accumulator.
 
 ## How the CID is computed by the smart contract (for nerds)
 
