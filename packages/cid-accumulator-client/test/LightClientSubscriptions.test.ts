@@ -250,18 +250,51 @@ describe("light client event subscriptions", { concurrency: false, timeout: 5000
 		assert.equal(received.mock.callCount(), 1)
 	})
 
-	test("an immediate stop cannot leave a scheduled startup's event listener attached", async (t) => {
+	test("stop cancels scheduled and in-flight initialization before a clean restart", async (t) => {
 		const f = fixture(t)
 		const received = t.mock.fn()
+		const componentStarts = f.client.spinUpOrder.map((component) => t.mock.method(component, "start"))
 		f.client.subscribe(received)
 		const starting = f.client.start()
 		f.client.stop()
 		await starting
 		assert.equal(f.subscriptions.mock.callCount(), 0)
+		assert.equal(f.client.running, false)
+		assert.equal(f.client.initialized, false)
+
+		const entered = deferred<void>()
+		const release = deferred<void>()
+		const storageInit = t.mock.method(f.client.storage, "init")
+		const storageStop = t.mock.method(f.client.storage, "stop")
+		storageInit.mock.mockImplementationOnce(async () => {
+			entered.resolve()
+			await release.promise
+		})
+		const delayedStart = f.client.start()
+		try {
+			await entered.promise
+			f.client.stop()
+		} finally {
+			release.resolve()
+			await delayedStart
+		}
+		assert.equal(f.client.running, false)
+		assert.equal(f.client.initialized, false)
+		assert.equal(storageStop.mock.callCount(), 1, "Stop the component whose initialization finished after cancellation")
+		for (const start of componentStarts) assert.equal(start.mock.callCount(), 0)
+		assert.equal(f.getBlock.mock.callCount(), 0)
+		assert.equal(f.getState.mock.callCount(), 0)
+		const whileStopped = await f.append(Uint8Array.of(1))
+		await f.events.fetchAndStoreEventsForBlock(whileStopped.blockNumber)
+		assert.equal(received.mock.callCount(), 0)
+
 		await f.client.start()
-		await f.append(Uint8Array.of(1))
+		assert.equal(f.client.running, true)
+		assert.equal(f.client.initialized, true)
+		await f.append(Uint8Array.of(2))
 		await f.tick()
 		assert.equal(received.mock.callCount(), 1)
+		assert.equal(received.mock.calls[0].arguments[0].leafIndex, 1)
 	})
 
 	test("a throwing subscriber does not block other callbacks or later polling", async (t) => {

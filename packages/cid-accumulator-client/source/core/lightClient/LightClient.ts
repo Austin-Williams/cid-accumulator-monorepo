@@ -10,6 +10,9 @@ export class LightClient extends DataClient implements LifecycleComponent {
 	initialized: boolean = false
 	running: boolean = false
 	private startPromise?: Promise<void>
+	private initPromise?: Promise<void>
+	private initGeneration = 0
+	private lifecycleGeneration = 0
 	private initializedComponents: LifecycleComponent[] = []
 	private unsubscribeFromEventCacheService?: () => void
 
@@ -30,21 +33,62 @@ export class LightClient extends DataClient implements LifecycleComponent {
 	 * @returns Promise that resolves when initialization is complete
 	 */
 	async init(): Promise<void> {
+		const generation = this.lifecycleGeneration
+		// A canceled component.start() can still be acquiring resources. Let its cleanup finish first.
+		if (!this.running && this.startPromise) {
+			try {
+				await this.startPromise
+			} catch {
+				// Failure of the canceled run does not prevent this new initialization request.
+			}
+			if (generation !== this.lifecycleGeneration) return
+		}
+		await this.initialize(generation)
+	}
+
+	private async initialize(generation: number): Promise<void> {
+		if (generation !== this.lifecycleGeneration) return
+		// A new run must wait for canceled initialization to release the shared components.
+		while (this.initPromise) {
+			const pendingGeneration = this.initGeneration
+			try {
+				await this.initPromise
+			} catch (error) {
+				if (pendingGeneration === generation) throw error
+			}
+			if (generation !== this.lifecycleGeneration) return
+		}
 		if (this.initialized) {
 			this.logger.warn("Already initialized. Skipping initialization.")
 			return
 		}
 
+		this.initGeneration = generation
+		this.initPromise = Promise.resolve()
+			.then(() => this.initializeComponents(generation))
+			.finally(() => {
+				this.initPromise = undefined
+			})
+		return this.initPromise
+	}
+
+	private async initializeComponents(generation: number): Promise<void> {
+		if (generation !== this.lifecycleGeneration) return
 		this.logger.log("Initializing...")
 
 		try {
 			for (const component of this.spinUpOrder) {
 				await component.init()
+				if (generation !== this.lifecycleGeneration) {
+					// stop() could not clean up this component until its initialization completed.
+					this.stopComponent(component)
+					return
+				}
 				this.initializedComponents.push(component)
 			}
 		} catch (error) {
 			this.logger.error(`Initialization failed: ${error}`)
-			this.stopInitializedComponents()
+			if (generation === this.lifecycleGeneration) this.stopInitializedComponents()
 			throw error
 		}
 
@@ -65,36 +109,51 @@ export class LightClient extends DataClient implements LifecycleComponent {
 		}
 
 		this.running = true
+		const generation = this.lifecycleGeneration
 		this.startPromise = Promise.resolve()
-			.then(() => this.startServices())
+			.then(() => this.startServices(generation))
 			.finally(() => {
 				this.startPromise = undefined
 			})
 		return this.startPromise
 	}
 
-	private async startServices(): Promise<void> {
-		if (!this.running) return // stop() may have been called before startup's scheduled work began.
+	private isCurrentStartup(generation: number): boolean {
+		return this.running && generation === this.lifecycleGeneration
+	}
+
+	private async startServices(generation: number): Promise<void> {
+		if (!this.isCurrentStartup(generation)) return
 		try {
 			// Connect before startup or initial sync can fetch and publish events.
 			this.unsubscribeFromEventCacheService = this.eventCacheService.subscribe((event) => {
-				if (this.running && event.account.toString() === this.account.toString()) {
+				if (this.isCurrentStartup(generation) && event.account.toString() === this.account.toString()) {
 					this.onLeafAppended(event)
 				}
 			})
-			if (!this.initialized) await this.init()
+			if (!this.initialized) await this.initialize(generation)
+			if (!this.isCurrentStartup(generation)) return
 			this.logger.log("Starting services...")
-			for (const component of this.spinUpOrder) await component.start()
+			for (const component of this.spinUpOrder) {
+				try {
+					await component.start()
+				} finally {
+					// A pending start may acquire resources after stop(), even if it then rejects.
+					if (!this.isCurrentStartup(generation)) this.stopComponent(component)
+				}
+				if (!this.isCurrentStartup(generation)) return
+			}
 			// start syncing (blocking)
 			try {
 				await this.sync()
+				if (!this.isCurrentStartup(generation)) return
 			} catch (error) {
 				this.logger.error(`Failed to sync light client: ${error}`)
 				throw error
 			}
 		} catch (error) {
 			this.logger.error(`Failed to start light client services: ${error}`)
-			this.stopInitializedComponents()
+			if (generation === this.lifecycleGeneration) this.stopInitializedComponents()
 			throw error
 		}
 
@@ -106,6 +165,8 @@ export class LightClient extends DataClient implements LifecycleComponent {
 	 * @dev Disconnects incoming events, then stops dependencies in reverse order of initialization
 	 */
 	stop(): void {
+		// Invalidate even an init() whose first component is still pending.
+		this.lifecycleGeneration++
 		if (!this.running && this.initializedComponents.length === 0) {
 			this.logger.warn("Not running, nothing to stop")
 			return
@@ -134,16 +195,22 @@ export class LightClient extends DataClient implements LifecycleComponent {
 		}
 		// A failed storage init must not trigger stop(), which could persist an empty store.
 		for (const component of this.initializedComponents.splice(0).reverse()) {
-			try {
-				component.stop()
-			} catch (error) {
-				const msg = error instanceof Error ? error.message : String(error)
-				this.logger.error(`Error stopping component ${component.constructor?.name ?? ""}: ${msg}`)
-				errors.push(error instanceof Error ? error : new Error(msg))
-			}
+			const error = this.stopComponent(component)
+			if (error) errors.push(error)
 		}
 
 		this.initialized = false
 		return errors
+	}
+
+	private stopComponent(component: LifecycleComponent): Error | undefined {
+		try {
+			component.stop()
+		} catch (error) {
+			const msg = error instanceof Error ? error.message : String(error)
+			this.logger.error(`Error stopping component ${component.constructor?.name ?? ""}: ${msg}`)
+			return error instanceof Error ? error : new Error(msg)
+		}
+		return undefined
 	}
 }
