@@ -85,20 +85,24 @@ function encode(val: any): DagCborEncodedData {
 
 function decode(buf: DagCborEncodedData): any {
 	let off = 0
+	const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
+	function requireBytes(length: number): void {
+		if (length > buf.length - off) throw new Error("Unexpected end of data")
+	}
 	function _decode(): any {
-		if (off >= buf.length) throw new Error("Unexpected end of data")
+		requireBytes(1)
 		const head = buf[off++]
 		const mt = head >> 5,
 			val = head & 0x1f
 		// Unsigned int
 		let n = val
-		if (val >= 24) {
-			if (val === 24) n = buf[off++]
-			else if (val === 25) {
-				n = (buf[off++] << 8) | buf[off++]
-			} else if (val === 26) {
-				n = (buf[off++] << 24) | (buf[off++] << 16) | (buf[off++] << 8) | buf[off++]
-			} else throw new Error("Unsupported int size")
+		if (mt !== MT_SIMPLE && val >= 24) {
+			const width = val === 24 ? 1 : val === 25 ? 2 : val === 26 ? 4 : 0
+			if (width === 0) throw new Error("Unsupported int size")
+			requireBytes(width)
+			// Bitwise operators would turn lengths >= 2^31 into negative numbers.
+			n = width === 1 ? view.getUint8(off) : width === 2 ? view.getUint16(off) : view.getUint32(off)
+			off += width
 		}
 		switch (mt) {
 			case MT_UINT:
@@ -106,25 +110,32 @@ function decode(buf: DagCborEncodedData): any {
 			case MT_NEGINT:
 				return -1 - n
 			case MT_BYTES: {
+				requireBytes(n)
 				const v = buf.slice(off, off + n)
 				off += n
 				return v
 			}
 			case MT_STRING: {
+				requireBytes(n)
 				const v = new TextDecoder().decode(buf.slice(off, off + n))
 				off += n
 				return v
 			}
 			case MT_ARRAY: {
+				// Each item needs at least one byte; reject impossible counts before looping.
+				requireBytes(n)
 				const arr = []
 				for (let i = 0; i < n; i++) arr.push(_decode())
 				return arr
 			}
 			case MT_OBJECT: {
+				requireBytes(n * 2)
 				const obj: any = {}
 				for (let i = 0; i < n; i++) {
 					const k = _decode()
-					obj[k] = _decode()
+					if (typeof k !== "string") throw new Error("CBOR map keys must be strings")
+					// Preserve keys such as "__proto__" as ordinary own properties.
+					Object.defineProperty(obj, k, { value: _decode(), enumerable: true, writable: true, configurable: true })
 				}
 				return obj
 			}
@@ -144,7 +155,8 @@ function decode(buf: DagCborEncodedData): any {
 				if (val === 23) return undefined
 				if (val === 27) {
 					// float64
-					const v = new DataView(buf.buffer, buf.byteOffset + off, 8).getFloat64(0)
+					requireBytes(8)
+					const v = view.getFloat64(off)
 					off += 8
 					return v
 				}

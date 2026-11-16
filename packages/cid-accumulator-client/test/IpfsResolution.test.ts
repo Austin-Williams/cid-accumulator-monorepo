@@ -9,8 +9,9 @@ import { DataClient } from "../source/core/dataClient/DataClient.js"
 import { AccumulatorContract } from "../source/ethereum/AccumulatorContract.js"
 import { EthereumAddress } from "../source/ethereum/EthereumAddress.js"
 import type { NormalizedLeafAppendedEvent } from "../source/ethereum/events.types.js"
+import { CarReader } from "../source/ipfs/CarReader.js"
 import { IpfsResolver } from "../source/ipfs/IpfsResolver.js"
-import type { CIDDataPair } from "../source/ipfs/types.js"
+import type { CIDDataPair, DagCborEncodedData } from "../source/ipfs/types.js"
 import { EventCacheService } from "../source/services/EventCacheService.js"
 import { InMemoryAdapter } from "../source/storage/adapters/InMemoryAdapter.js"
 import { encodeBlock, uint8ArrayToHexString } from "../source/utils/codec.js"
@@ -104,6 +105,35 @@ const expectedPayloads = [
 ]
 
 describe("complete IPFS tree resolution", { concurrency: false, timeout: 5000 }, () => {
+	test("CAR parsing checks unsigned lengths, framing, and header structure", async () => {
+		assert.equal(dagCbor.decode(dagCbor.encode(0xffffffff)), 0xffffffff)
+		const truncatedValues = [
+			[0x1a, 0x00], // Incomplete four-byte argument.
+			[0x5a, 0xff, 0xff, 0xff, 0xff], // Bytes cannot have a negative length.
+			[0x9a, 0xff, 0xff, 0xff, 0xff], // Nor can array or map counts.
+			[0xba, 0xff, 0xff, 0xff, 0xff],
+			[0x82, 0x7a, 0xff, 0xff, 0xff, 0xfb], // A text length must not move the cursor backward.
+		]
+		for (const bytes of truncatedValues) {
+			assert.throws(() => dagCbor.decode(Uint8Array.from(bytes) as DagCborEncodedData), /Unexpected end of data/)
+		}
+
+		const root = await encodeBlock(Uint8Array.of(1))
+		const headerOnly = makeCar(root, [])
+		const invalidCars = [
+			Uint8Array.of(0x80), // Truncated length varint.
+			varint(Number.MAX_SAFE_INTEGER + 1),
+			Buffer.concat([varint(2 ** 32), headerOnly]), // Must not wrap around to a small length.
+			headerOnly.slice(0, -1),
+			Buffer.concat([headerOnly, varint(4), Uint8Array.of(1)]), // Truncated block.
+			...[[], { version: 2, roots: [] }, { version: 1, roots: [1] }].map((header) => {
+				const bytes = dagCbor.encode(header)
+				return Buffer.concat([varint(bytes.length), bytes])
+			}),
+		]
+		for (const car of invalidCars) await assert.rejects(CarReader.fromBytes(car))
+	})
+
 	test("a complete cached tree resolves without gateway requests", async (t) => {
 		const { blocks, root, resolver, cache, requests } = await fixture(t)
 		await cache(blocks)
