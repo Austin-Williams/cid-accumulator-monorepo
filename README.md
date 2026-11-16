@@ -93,8 +93,6 @@ For 32-byte payloads and initialized storage, inserts with zero, one, or two mer
 
 To get the root CID for your account's data, call either the `getRootCID(address account) external view returns (bytes memory rawCIDv1)` function (for the raw CIDv1 byte sequence) or the `getRootCIDString(address account) external view returns (string memory)` (for the base32-encoded CID string).
 
-To read the peaks directly, call `getState(account)`. It returns packed metadata and 32 peak slots. Only the first `peakCount = (metadata >> 160) & 0x1f` entries are active; ignore the remaining slots, which may be zero or contain stale hashes.
-
 Then use that root CID to download the data from your IPFS HTTP gateway. For example, with Kubo running locally: `http://127.0.0.1:8080/ipfs/<rootCID>?format=car`.
 
 To open a CID manually in a browser, use `https://inbrowser.link/ipfs/<rootCID>`. This gateway retrieves content through a browser service worker; programmatic clients need a local or hosted HTTP gateway.
