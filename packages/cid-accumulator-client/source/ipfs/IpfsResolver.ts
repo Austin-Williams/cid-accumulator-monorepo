@@ -42,7 +42,7 @@ export class IpfsResolver implements LifecycleComponent {
 		const cachedData = await this.storage.get(key)
 		if (cachedData) {
 			const data = hexStringToUint8Array(cachedData) as DagCborEncodedData
-			verifyCIDAgainstDagCborEncodedDataOrThrow(
+			await verifyCIDAgainstDagCborEncodedDataOrThrow(
 				data,
 				cid,
 				`IPFS Cache returned invalid data! This should never happen.`

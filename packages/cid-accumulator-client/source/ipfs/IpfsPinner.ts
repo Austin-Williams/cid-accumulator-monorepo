@@ -89,7 +89,7 @@ export class IpfsPinner implements LifecycleComponent {
 	 */
 	async putAndPin({ cid, dagCborEncodedData }: CIDDataPair, account: EthereumAddress): Promise<void> {
 		//this.logger.log(`Pinning CID ${cid.toString()} for account ${account.toString()}`)
-		if (!verifyCIDAgainstDagCborEncodedData(dagCborEncodedData, cid)) {
+		if (!(await verifyCIDAgainstDagCborEncodedData(dagCborEncodedData, cid))) {
 			throw new Error(`[KuboIpfsPinner] Input CID ${cid.toString()} does not match dag-cbor-encoded-data`)
 		}
 		const res = await postIpfsBinary(
