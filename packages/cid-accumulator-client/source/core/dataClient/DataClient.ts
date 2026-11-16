@@ -15,6 +15,11 @@ import type { Logger } from "../../types/common.js"
 import type { Storage } from "../../storage/interface.js"
 import type { IpfsResolver } from "../../ipfs/IpfsResolver.js"
 
+const MAX_SYNC_SNAPSHOT_REFRESHES = 3
+
+// Newer cached leaves may be valid events received after the contract snapshot.
+class CacheAheadOfSnapshotError extends Error {}
+
 /**
  * Manages getting all payload data for this account as efficiently as possible.
  * Uses the "CID-Walkback" method to look for payload data on IPFS, and will fully sync from
@@ -57,6 +62,7 @@ export class DataClient {
 	 * @notice Syncs this account's data from the latest leaf index down to the last contiguous leaf index in storage
 	 * @dev Concurrent callers share the current sync's result or error. Failed syncs can be retried.
 	 * Success requires the cached payload count and reconstructed root to match the fetched contract state.
+	 * Newer cached leaves trigger bounded snapshot refreshes when the contract's leaf count has advanced.
 	 * @return A promise that resolves when syncing is complete
 	 */
 	public sync(): Promise<void> {
@@ -67,11 +73,30 @@ export class DataClient {
 		this.completedInitialSync = false
 		this.syncPromise = Promise.resolve()
 			.then(async () => {
-				// Use one contract snapshot for both data retrieval and final verification.
-				const { meta, peaks } = await this.accumulatorContract.getState(this.account)
-				const currentRootCID = await getRootCIDFromPeaks(peaks.map((p) => p.cid))
-				await this.syncBackwardsFromLatest(meta, peaks, currentRootCID)
-				await this.verifyCachedPayloads(meta.leafCount, currentRootCID)
+				let state = await this.accumulatorContract.getState(this.account)
+				let snapshotRefreshes = 0
+				while (true) {
+					// Retrieval and verification must use the same contract snapshot on each attempt.
+					const { meta, peaks } = state
+					const currentRootCID = await getRootCIDFromPeaks(peaks.map((p) => p.cid))
+					await this.syncBackwardsFromLatest(meta, peaks, currentRootCID)
+					try {
+						await this.verifyCachedPayloads(meta.leafCount, currentRootCID)
+						break
+					} catch (error) {
+						if (!(error instanceof CacheAheadOfSnapshotError)) throw error
+						const latestState = await this.accumulatorContract.getState(this.account)
+						// Extra cache entries remain an integrity failure unless the chain advanced.
+						if (latestState.meta.leafCount <= meta.leafCount) throw error
+						if (snapshotRefreshes >= MAX_SYNC_SNAPSHOT_REFRESHES) {
+							throw new Error(
+								`[DataClient] Contract kept advancing during sync for ${this.account}; retry sync() to verify a fresh snapshot.`
+							)
+						}
+						state = latestState
+						snapshotRefreshes++
+					}
+				}
 				this.completedInitialSync = true
 				this.logger.log(`Synced and verified against contract state.`)
 			})
@@ -346,7 +371,7 @@ export class DataClient {
 			return
 		}
 		const highestContiguousLeafIndexWithData = await this.getHighestContiguousLeafIndexWithData()
-		if (highestContiguousLeafIndexWithData === meta.leafCount - 1) {
+		if (highestContiguousLeafIndexWithData >= meta.leafCount - 1) {
 			this.logger.log(`All payloads are present in local storage. Verifying...`)
 			return
 		}
@@ -471,9 +496,7 @@ export class DataClient {
 		}
 	}
 
-	/** Verify the actual cached payloads, including extra entries beyond the contract's leaf count. */
-	private async verifyCachedPayloads(leafCount: number, expectedRootCID: CID<unknown, 113, 18, 1>): Promise<void> {
-		const errorPrefix = `[DataClient] Cache integrity check failed for ${this.account}`
+	private async verifyCachedPayloadCount(leafCount: number): Promise<void> {
 		let payloadCount = 0
 		let highestIndex = -1
 		for await (const { index } of this.iterate()) {
@@ -481,11 +504,16 @@ export class DataClient {
 			highestIndex = Math.max(highestIndex, index)
 		}
 		if (payloadCount !== leafCount || highestIndex !== leafCount - 1) {
-			throw new Error(
-				`${errorPrefix}: expected ${leafCount} contiguous payloads starting at index 0; found ${payloadCount} payloads with highest index ${highestIndex}.`
-			)
+			const message = `[DataClient] Cache integrity check failed for ${this.account}: expected ${leafCount} contiguous payloads starting at index 0; found ${payloadCount} payloads with highest index ${highestIndex}.`
+			if (highestIndex >= leafCount) throw new CacheAheadOfSnapshotError(message)
+			throw new Error(message)
 		}
+	}
 
+	/** Verify the actual cached payloads, including extra entries beyond the contract's leaf count. */
+	private async verifyCachedPayloads(leafCount: number, expectedRootCID: CID<unknown, 113, 18, 1>): Promise<void> {
+		const errorPrefix = `[DataClient] Cache integrity check failed for ${this.account}`
+		await this.verifyCachedPayloadCount(leafCount)
 		// Read by index: storage iteration order and cached root metadata are not authoritative.
 		const mmr = new MerkleMountainRange()
 		for (let index = 0; index < leafCount; index++) {
@@ -497,6 +525,8 @@ export class DataClient {
 		if (!actualRootCID.equals(expectedRootCID)) {
 			throw new Error(`${errorPrefix}: root mismatch; expected ${expectedRootCID}, got ${actualRootCID}.`)
 		}
+		// Polling can append leaves while the existing prefix is being hashed.
+		await this.verifyCachedPayloadCount(leafCount)
 	}
 
 	/**
