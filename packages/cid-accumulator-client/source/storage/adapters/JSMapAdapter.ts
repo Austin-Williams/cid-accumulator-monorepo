@@ -1,33 +1,49 @@
+/// <reference lib="es2021.weakref" />
+
 import type { Storage } from "../interface.js"
+
+type SharedDatabase = {
+	filePath: string
+	store: Map<string, string>
+	pendingWrite: Promise<void>
+	loadPromise?: Promise<void>
+}
+
+// Adapters in this process share state by normalized absolute path. Weak references
+// let the data be collected once no adapters or pending operations use it.
+const databases = new Map<string, WeakRef<SharedDatabase>>()
 
 // JSMapAdapter implements Storage using a native Map,
 // with persistence to a local file (JSON-serialized).
 // No external dependencies required. Suitable for moderate datasets (~100k entries).
 export class JSMapAdapter implements Storage {
-	private store: Map<string, string> = new Map()
-	private filePath: string
-	private pendingWrite: Promise<void> = Promise.resolve()
+	private readonly filePath: string
+	private databasePromise?: Promise<SharedDatabase>
 
 	constructor(filePath: string | undefined) {
 		this.filePath = filePath ?? "./db/cid-accumulator.json"
 	}
 
 	async put(key: string, value: string): Promise<void> {
-		this.store.set(key.toLowerCase(), value)
-		await this.persist()
+		const database = await this.getDatabase()
+		database.store.set(key.toLowerCase(), value)
+		await this.persistDatabase(database)
 	}
 
 	async get(key: string): Promise<string | undefined> {
-		return this.store.get(key.toLowerCase())
+		const database = await this.getDatabase()
+		return database.store.get(key.toLowerCase())
 	}
 
 	async delete(key: string): Promise<void> {
-		this.store.delete(key.toLowerCase())
-		await this.persist()
+		const database = await this.getDatabase()
+		database.store.delete(key.toLowerCase())
+		await this.persistDatabase(database)
 	}
 
 	async *iterate(prefix: string): AsyncIterable<{ key: string; value: string }> {
-		for (const [key, value] of this.store.entries()) {
+		const database = await this.getDatabase()
+		for (const [key, value] of database.store.entries()) {
 			if (key.startsWith(prefix.toLowerCase())) {
 				yield { key, value }
 			}
@@ -35,34 +51,77 @@ export class JSMapAdapter implements Storage {
 	}
 
 	async open(): Promise<void> {
-		const { promises: fs } = await import("fs")
-		// Load from disk if file exists
+		await this.getDatabase()
+	}
+
+	private async getDatabase(): Promise<SharedDatabase> {
+		const acquisition = (this.databasePromise ??= this.acquireDatabase())
 		try {
-			const data = await fs.readFile(this.filePath, "utf8")
+			return await acquisition
+		} catch (error) {
+			// A failed initial read must be retryable after the underlying file is repaired.
+			if (this.databasePromise === acquisition) this.databasePromise = undefined
+			throw error
+		}
+	}
+
+	private async acquireDatabase(): Promise<SharedDatabase> {
+		// Keep Node built-ins lazy: this module is also imported by browser bundles.
+		const { resolve } = await import("path")
+		const filePath = resolve(this.filePath)
+		for (const [key, reference] of databases) {
+			if (!reference.deref()) databases.delete(key)
+		}
+		const database: SharedDatabase = databases.get(filePath)?.deref() ?? {
+			filePath,
+			store: new Map(),
+			pendingWrite: Promise.resolve(),
+		}
+		databases.set(filePath, new WeakRef(database))
+		if (!database.loadPromise) {
+			database.loadPromise = this.loadDatabase(database).catch((error) => {
+				database.loadPromise = undefined
+				throw error
+			})
+		}
+		await database.loadPromise
+		return database
+	}
+
+	private async loadDatabase(database: SharedDatabase): Promise<void> {
+		const { promises: fs } = await import("fs")
+		// Load once before any adapter mutates the shared store.
+		try {
+			const data = await fs.readFile(database.filePath, "utf8")
 			const obj = JSON.parse(data)
-			this.store = new Map(Object.entries(obj))
+			database.store = new Map(Object.entries(obj))
 		} catch (err: any) {
 			if (err.code !== "ENOENT") throw err // Ignore file-not-found
 		}
 	}
 
 	async persist(): Promise<void> {
-		const write = this.pendingWrite.then(() => this.writeSnapshot())
-		// Report failures to this caller without blocking later writes or retries.
-		this.pendingWrite = write.catch(() => {})
-		await write
+		const database = await this.getDatabase()
+		await this.persistDatabase(database)
 	}
 
-	private async writeSnapshot(): Promise<void> {
+	private persistDatabase(database: SharedDatabase): Promise<void> {
+		const write = database.pendingWrite.then(() => this.writeSnapshot(database))
+		// Report failures to this caller without blocking later writes or retries.
+		database.pendingWrite = write.catch(() => {})
+		return write
+	}
+
+	private async writeSnapshot(database: SharedDatabase): Promise<void> {
 		const { promises: fs } = await import("fs")
 		const { dirname } = await import("path")
 		const { randomUUID } = await import("crypto")
 		// Capture the current state when this queued write starts.
-		const snapshot = JSON.stringify(Object.fromEntries(this.store))
-		await fs.mkdir(dirname(this.filePath), { recursive: true })
+		const snapshot = JSON.stringify(Object.fromEntries(database.store))
+		await fs.mkdir(dirname(database.filePath), { recursive: true })
 
 		// Keep the temporary file on the same filesystem for atomic replacement.
-		const temporaryPath = `${this.filePath}.${randomUUID()}.tmp`
+		const temporaryPath = `${database.filePath}.${randomUUID()}.tmp`
 		const file = await fs.open(temporaryPath, "wx", 0o600)
 		try {
 			try {
@@ -70,14 +129,14 @@ export class JSMapAdapter implements Storage {
 			} finally {
 				await file.close()
 			}
-			await fs.rename(temporaryPath, this.filePath)
+			await fs.rename(temporaryPath, database.filePath)
 		} finally {
 			await fs.rm(temporaryPath, { force: true })
 		}
 	}
 
 	async close(): Promise<void> {
-		// Queue a final snapshot and wait for all earlier writes to finish.
+		// Flush earlier writes without discarding state still used by this adapter or its peers.
 		await this.persist()
 	}
 
