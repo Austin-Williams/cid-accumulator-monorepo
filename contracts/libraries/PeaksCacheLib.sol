@@ -18,10 +18,9 @@ library PeaksCacheLib {
 		uint256 i,
 		bytes32[32] storage store
 	) internal view returns (bytes32 peak) {
-		// load or cache the peak in one go
+		// Cache storage reads without marking an unchanged value for writeback.
 		if ((peak = cache.peakValues[i]) == bytes32(0)) {
 			cache.peakValues[i] = peak = store[i];
-			cache.dirtyMask |= 1 << i;
 		}
 	}
 
