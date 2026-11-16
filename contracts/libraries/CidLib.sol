@@ -9,19 +9,8 @@ library CidLib {
 	/// @return The raw CIDv1 byte sequence: [version][codec][multihash].
 
 	function encodeCid(bytes32 hash) internal pure returns (bytes memory) {
-		// Multihash prefix: keccak-256 (0x1b), length 32 (0x20)
-		bytes memory multihash = abi.encodePacked(
-			hex"1b", // Keccak-256 code.
-			hex"20", // Length: 32 bytes.
-			hash // The digest.
-		);
-		// CIDv1 prefix: version 1 (0x01), dag-cbor codec (0x71)
-		return
-			abi.encodePacked(
-				hex"01", // CID version 1.
-				hex"71", // dag-cbor codec.
-				multihash
-			);
+		// Prefix: CIDv1 (0x01), DAG-CBOR (0x71), Keccak-256 (0x1b), digest length 32 (0x20).
+		return abi.encodePacked(hex"01711b20", hash);
 	}
 
 	/// @notice Encodes a 32-byte hash as a Base32 multibase CID string (prefix 'b').
