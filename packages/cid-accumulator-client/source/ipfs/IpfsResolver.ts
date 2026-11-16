@@ -27,9 +27,9 @@ export class IpfsResolver implements LifecycleComponent {
 	}
 
 	/**
-	 * @notice Retrieves a block by CID from local DB or IPFS. Throws Error if the block is not found.
+	 * @notice Retrieves a block by CID from local DB or IPFS.
 	 * @param cid The CID of the block to retrieve
-	 * @return Promise<DagCborEncodedData> The DagCborEncodedData for the block.
+	 * @return The verified block, or undefined if unavailable after the configured retries.
 	 * @dev Stores any blocks retrieved from IPFS in the local DB if it is not already present.
 	 * @dev The DagCborEncodedData can be decoded via dagCbor.decode.
 	 */
@@ -52,10 +52,9 @@ export class IpfsResolver implements LifecycleComponent {
 		}
 		if (localStorageOnly) return undefined
 
-
-		// if we get here, we need to fetch the block from IPFS
+		// Each download attempt gets its own timeout and abort signal.
+		const url = buildIpfsUrl(this.gatewayUrl, `ipfs/${cid.toString()}`).toString()
 		const fetchBlock = async () => {
-			const url = buildIpfsUrl(this.gatewayUrl, `ipfs/${cid.toString()}`).toString()
 			const controller = new AbortController()
 			const timeoutId = setTimeout(() => controller.abort(), 5000)
 			try {
@@ -74,20 +73,21 @@ export class IpfsResolver implements LifecycleComponent {
 				await this.storage.put(key, uint8ArrayToHexString(data))
 
 				return data
-			} catch (error: unknown) {
-				if ((error as any).name === "AbortError") {
-					this.logger.warn(`Fetch timed out after 5000ms for ${url}`)
-				} else {
-					this.logger.error(`Error fetching block ${cid.toString()}: ${error}`)
-				}
-				return undefined
 			} finally {
 				clearTimeout(timeoutId)
 			}
 		}
 
-		// Use rate limiter if provided, otherwise just fetch directly
-		return this.rateLimiter.execute(fetchBlock)
+		try {
+			return await this.rateLimiter.execute(fetchBlock)
+		} catch (error: unknown) {
+			if (error instanceof Error && error.name === "AbortError") {
+				this.logger.warn(`Fetch timed out after 5000ms for ${url}`)
+			} else {
+				this.logger.error(`Error fetching block ${cid.toString()}: ${error}`)
+			}
+			return undefined
+		}
 	}
 
 	/**

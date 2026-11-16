@@ -40,7 +40,7 @@ function makeCar(root: CIDDataPair, blocks: CIDDataPair[]): Uint8Array {
 	return Buffer.concat(parts)
 }
 
-async function fixture(t: TestContext, gatewayUrl = "https://ipfs.example.test") {
+async function fixture(t: TestContext, gatewayUrl = "https://ipfs.example.test", maxRetries = 0) {
 	t.mock.method(console, "log", () => {})
 	t.mock.method(console, "warn", () => {})
 	t.mock.method(console, "error", () => {})
@@ -53,12 +53,12 @@ async function fixture(t: TestContext, gatewayUrl = "https://ipfs.example.test")
 	const storage = new InMemoryAdapter()
 	const resolver = new IpfsResolver(storage, {
 		gatewayUrl,
-		rateLimiterOptions: { intervalMs: 0, maxRetries: 0, baseDelay: 0, capDelay: 0 },
+		rateLimiterOptions: { intervalMs: 0, maxRetries, baseDelay: 0, capDelay: 0 },
 	})
 	let car: Uint8Array | undefined
 	const rawBlocks = new Map<string, Uint8Array>()
 	const requests: URL[] = []
-	t.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
+	const fetch = t.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
 		const url = new URL(input instanceof Request ? input.url : input.toString())
 		requests.push(url)
 		const bytes = url.searchParams.get("format") === "car" ? car : rawBlocks.get(url.pathname.split("/").pop()!)
@@ -74,6 +74,7 @@ async function fixture(t: TestContext, gatewayUrl = "https://ipfs.example.test")
 		blocks,
 		storage,
 		resolver,
+		fetch,
 		requests,
 		rawBlocks,
 		setCar: (included: CIDDataPair[]) => {
@@ -160,18 +161,26 @@ describe("complete IPFS tree resolution", { concurrency: false, timeout: 5000 },
 	})
 
 	test("an incomplete CAR can fall back to individual blocks before yielding payloads", async (t) => {
-		const f = await fixture(t, "https://ipfs.example.test/gateway/?token=a%2Bb%2Fc%3D&format=raw")
+		const f = await fixture(t, "https://ipfs.example.test/gateway/?token=a%2Bb%2Fc%3D&format=raw", 1)
 		f.setCar([f.root, f.branch])
 		for (const block of f.blocks) f.rawBlocks.set(block.cid.toString(), block.dagCborEncodedData)
+		// The first individual block request fails, then the gateway recovers.
+		f.fetch.mock.mockImplementationOnce(async (input: string | URL | Request) => {
+			f.requests.push(new URL(input instanceof Request ? input.url : input.toString()))
+			return new Response(null, { status: 503 })
+		}, 1)
 		const result = await f.resolver.fullyResolveCID(f.root.cid)
 		assert.equal(f.requests[0].pathname, `/gateway/ipfs/${f.root.cid}`)
 		assert.deepEqual(f.requests[0].searchParams.getAll("format"), ["car"])
-		assert.equal(f.requests.filter((url) => url.searchParams.get("format") === "raw").length, f.blocks.length)
+		const blockRequests = f.requests.filter((url) => url.searchParams.get("format") === "raw")
+		assert.equal(blockRequests.length, f.blocks.length + 1, "One retry should recover the failed block request")
+		assert.equal(blockRequests.filter((url) => url.pathname === `/gateway/ipfs/${f.root.cid}`).length, 2)
 		for (const url of f.requests) {
 			assert.ok(url.pathname.startsWith("/gateway/ipfs/"))
 			assert.equal(url.searchParams.get("token"), "a+b/c=")
 		}
 		assert.deepEqual(await collect(result), expectedPayloads)
+		assert.deepEqual(await f.resolver.getBlock(f.root.cid, true), f.root.dagCborEncodedData)
 	})
 
 	test("a client with a partial cached tree syncs successfully from contract events", async (t) => {
