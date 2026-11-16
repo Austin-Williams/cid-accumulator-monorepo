@@ -91,16 +91,10 @@ export class IpfsResolver implements LifecycleComponent {
 	}
 
 	/**
-	 * @notice Recursively resolves a Merkle tree (DAG) from a given root CID.
-	 * @dev This function traverses the DAG in depth-first order, decoding each IPLD node using dag-cbor.
-	 * It collects and returns all leaf payload data (as Uint8Array) in a flat array.
-	 * If any block referenced by the DAG is missing from the blockstore, the function will throw an Error
-	 * with a descriptive message indicating which CID could not be found. This behavior is intentional:
-	 * callers should be prepared to handle thrown errors if the DAG is incomplete or unavailable.
+	 * @notice Resolves every block reachable from a root CID using the cache, a CAR file, or individual block requests.
+	 * @dev Returns undefined if any referenced block remains unavailable, so callers can try another data source.
 	 * @param cid The root CID of the Merkle tree to resolve. Must be CID.
-	 * @return { fullyResolved: boolean, payloadsAsyncIterable?: AsyncIterable<{ leafIndex: number; payload: Uint8Array }> }
-	 * @return fullyResolved: boolean - Whether the DAG was fully resolved (i.e. all blocks were found)
-	 * @return payloadsAsyncIterable: AsyncIterable<{ leafIndex: number; payload: Uint8Array }> - An async iterable of the payloads found in the DAG
+	 * @return An iterable of leaf payloads in order if the entire DAG was resolved, or undefined otherwise.
 	 */
 	public async fullyResolveCID(
 		cid: CID<unknown, 113, 18, 1>
@@ -121,7 +115,7 @@ export class IpfsResolver implements LifecycleComponent {
 			this.logger.warn(`Failed to fetch CAR file from IPFS gateway. Falling back to asking for individual IPFS blocks.`)
 		}
 
-		// Use Promise.race to handle abort signal if provided
+		// Try individual blocks if the cache and CAR download could not resolve the entire tree.
 		const resolved = await this.resolveMerkleTree(cid)
 
 		if (!resolved) return undefined
@@ -192,16 +186,19 @@ export class IpfsResolver implements LifecycleComponent {
 			const carReader = await CarReader.fromBytes(carBytes)
 			const cidStringToDataMap = new Map<string, DagCborEncodedData>()
 
-			// dont trust, verify.
+			// Verify each block before checking whether the CAR contains the complete requested tree.
 			for await (const block of carReader.blocks()) {
 				const computedCID = await verifyCIDAgainstDagCborEncodedData(block.bytes as DagCborEncodedData, block.cid as CID<unknown, 113, 18, 1>)
 				if (!computedCID) throw new Error(`CID/Data pair is invalid. dagCborEncodedData: ${block.bytes}, expectedCID: ${block.cid.toString()}`)
 				cidStringToDataMap.set(block.cid.toString(), block.bytes as DagCborEncodedData)
-				const verified: boolean = await resolveMerkleTreeFromLocalMap(block.cid as CID<unknown, 113, 18, 1>, cidStringToDataMap)
-				if (!verified) throw new Error(`Could not resolve the root CID with the CAR file`)
 			}
 
-			// put the datain local storag
+			// CAR blocks may arrive in any order. Validate the requested root after reading them all.
+			if (!(await resolveMerkleTreeFromLocalMap(rootCid, cidStringToDataMap))) {
+				throw new Error(`Could not resolve the root CID with the CAR file`)
+			}
+
+			// Cache the verified tree.
 			for (const [cid, data] of cidStringToDataMap.entries()) {
 				const key = `ipfs:block:${cid}`
 				await this.storage.put(key, uint8ArrayToHexString(data))
@@ -344,9 +341,10 @@ export class IpfsResolver implements LifecycleComponent {
 			return await this.resolveMerkleTree(node, localStorageOnly)
 		} else if (isInternalNode(node)) {
 			// then we just got a (NOT DagCbor encoded) link node that points to a "left" CID and a "right" CID
-			await this.resolveMerkleTree(node.L, localStorageOnly)
-			await this.resolveMerkleTree(node.R, localStorageOnly)
-			return true
+			return (
+				(await this.resolveMerkleTree(node.L, localStorageOnly)) &&
+				(await this.resolveMerkleTree(node.R, localStorageOnly))
+			)
 		} else {
 			this.logger.error("Unexpected node structure")
 			return false

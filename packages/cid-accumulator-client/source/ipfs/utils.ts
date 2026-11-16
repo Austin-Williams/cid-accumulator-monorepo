@@ -166,9 +166,10 @@ export async function resolveMerkleTreeFromLocalMap(cid: CID<unknown, 113, 18, 1
 		return await resolveMerkleTreeFromLocalMap(node, cidStringToDataMap)
 	} else if (isInternalNode(node)) {
 		// then we just got a (NOT DagCbor encoded) link node that points to a "left" CID and a "right" CID
-		await resolveMerkleTreeFromLocalMap(node.L, cidStringToDataMap)
-		await resolveMerkleTreeFromLocalMap(node.R, cidStringToDataMap)
-		return true
+		return (
+			(await resolveMerkleTreeFromLocalMap(node.L, cidStringToDataMap)) &&
+			(await resolveMerkleTreeFromLocalMap(node.R, cidStringToDataMap))
+		)
 	} else {
 		console.error("Unexpected node structure")
 		return false
