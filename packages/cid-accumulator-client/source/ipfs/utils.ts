@@ -3,6 +3,7 @@ import type { DagCborEncodedData, IpldNode } from "./types.js"
 import { CID } from "./CID.js"
 import { hashToMultiformatsDigest, isInternalNode, isIpldLink } from "../utils/codec.js"
 import * as dagCbor from "../utils/dagCbor.js"
+import { fetchWithRedactedErrors } from "../utils/http.js"
 
 /** Append an IPFS endpoint while preserving base query parameters; request parameters take precedence. */
 export function buildIpfsUrl(baseUrl: string, endpoint: string, params: Record<string, string> = {}): URL {
@@ -51,7 +52,7 @@ export async function postIpfsBinary(
 	const blob = new Blob([new Uint8Array(body)], { type: "application/octet-stream" })
 	formData.append("data", blob)
 
-	const res = await fetch(url.toString(), {
+	const res = await fetchWithRedactedErrors(url.toString(), {
 		method: "POST",
 		body: formData,
 	})
@@ -78,7 +79,7 @@ export async function postIpfsEmpty(
 
 	// Most IPFS API endpoints expect the parameters in the URL, not the body
 	try {
-		const res = await fetch(url.toString(), {
+		const res = await fetchWithRedactedErrors(url.toString(), {
 			method: "POST",
 			// Send a proper form-based POST like the CLI does
 			body: formData,

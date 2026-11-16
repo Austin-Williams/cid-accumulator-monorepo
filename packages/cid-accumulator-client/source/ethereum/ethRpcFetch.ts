@@ -1,4 +1,5 @@
 import type { BlockReference } from "./events.types.js"
+import { fetchWithRedactedErrors } from "../utils/http.js"
 
 // Makes a raw Ethereum JSON-RPC call using fetch.
 // @param ethereumHttpRpcUrl string (Ethereum node endpoint)
@@ -7,7 +8,7 @@ import type { BlockReference } from "./events.types.js"
 // @param id number (request id, default 1)
 // @returns Promise<any> (result field from response)
 export async function ethRpcFetch(ethereumHttpRpcUrl: string, method: string, params: any[], id = 1): Promise<any> {
-	const res = await fetch(ethereumHttpRpcUrl, {
+	const res = await fetchWithRedactedErrors(ethereumHttpRpcUrl, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({

@@ -4,6 +4,7 @@ import { buildIpfsUrl, resolveMerkleTreeFromLocalMap, verifyCIDAgainstDagCborEnc
 import { createLogger } from "../utils/logging.js"
 import { hexStringToUint8Array, isInternalNode, isIpldLink, uint8ArrayToHexString } from "../utils/codec.js"
 import { RateLimiter } from "../utils/rateLimiter.js"
+import { fetchWithRedactedErrors } from "../utils/http.js"
 import { verifyCIDAgainstDagCborEncodedDataOrThrow } from "./utils.js"
 
 import type { CID } from "./CID.js"
@@ -58,7 +59,7 @@ export class IpfsResolver implements LifecycleComponent {
 			const controller = new AbortController()
 			const timeoutId = setTimeout(() => controller.abort(), 5000)
 			try {
-				const res = await fetch(url, { method: "GET", signal: controller.signal })
+				const res = await fetchWithRedactedErrors(url, { method: "GET", signal: controller.signal })
 				if (!res.ok) throw new Error(`IPFS block/get failed: ${res.status} ${res.statusText}`)
 				const data: DagCborEncodedData = new Uint8Array(await res.arrayBuffer()) as DagCborEncodedData
 
@@ -177,7 +178,7 @@ export class IpfsResolver implements LifecycleComponent {
 		const timeoutId = setTimeout(() => controller.abort(), 15000)
 		try {
 			this.logger.log(`Attempting to fetch CAR file for root CID ${rootCid.toString()}...`)
-			const res = await fetch(url, { method: "GET", signal: controller.signal })
+			const res = await fetchWithRedactedErrors(url, { method: "GET", signal: controller.signal })
 			if (!res.ok) throw new Error(`IPFS block/get failed: ${res.status} ${res.statusText}`)
 			this.logger.log(`Fetched CAR file for root CID ${rootCid.toString()}. Verifying its contents...`)
 			const carBytes = new Uint8Array(await res.arrayBuffer())

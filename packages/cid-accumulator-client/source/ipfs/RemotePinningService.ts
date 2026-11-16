@@ -6,6 +6,7 @@ import type { Logger } from "../types/common.js"
 import { CID } from "./CID.js"
 import type { IpfsErrorCheckResult, RemotePinningResult } from "./RemotePinningService.types.js"
 import { buildIpfsUrl } from "./utils.js"
+import { fetchWithRedactedErrors } from "../utils/http.js"
 
 /**
  * A class to handle interactions with a remote pinning service
@@ -85,7 +86,7 @@ export class RemotePinningService {
 		let lsResponseBody: LsResponseBody
 		try {
 			lsResponseBody = await this.rateLimiter.execute(async () => {
-				const response = await fetch(url.toString(), { method: "POST" })
+				const response = await fetchWithRedactedErrors(url.toString(), { method: "POST" })
 				if (!response.ok) {
 					throw new Error(`IPFS pin/remote/ls failed: ${response.status} ${response.statusText}`)
 				}
@@ -144,7 +145,7 @@ export class RemotePinningService {
 		return this.rateLimiter.execute(async () => {
 			let responseStatus: number | undefined
 			try {
-				const response = await fetch(url.toString(), { method: "POST" })
+				const response = await fetchWithRedactedErrors(url.toString(), { method: "POST" })
 				responseStatus = response.status
 				// background=true confirms submission, not completed remote pinning.
 				if (response.ok) return { success: true, skipService: false }
