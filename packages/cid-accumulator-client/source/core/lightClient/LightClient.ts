@@ -11,6 +11,7 @@ export class LightClient extends DataClient implements LifecycleComponent {
 	running: boolean = false
 	private startPromise?: Promise<void>
 	private initializedComponents: LifecycleComponent[] = []
+	private unsubscribeFromEventCacheService?: () => void
 
 	constructor(accountAddress: EthereumAddress, dependencies: DataClientDependencies) {
 		super(accountAddress, dependencies)
@@ -73,7 +74,14 @@ export class LightClient extends DataClient implements LifecycleComponent {
 	}
 
 	private async startServices(): Promise<void> {
+		if (!this.running) return // stop() may have been called before startup's scheduled work began.
 		try {
+			// Connect before startup or initial sync can fetch and publish events.
+			this.unsubscribeFromEventCacheService = this.eventCacheService.subscribe((event) => {
+				if (this.running && event.account.toString() === this.account.toString()) {
+					this.onLeafAppended(event)
+				}
+			})
 			if (!this.initialized) await this.init()
 			this.logger.log("Starting services...")
 			for (const component of this.spinUpOrder) await component.start()
@@ -95,7 +103,7 @@ export class LightClient extends DataClient implements LifecycleComponent {
 
 	/**
 	 * @notice Stops the light client dependencies
-	 * @dev Dependencies are stopped in reverse order of initialization
+	 * @dev Disconnects incoming events, then stops dependencies in reverse order of initialization
 	 */
 	stop(): void {
 		if (!this.running && this.initializedComponents.length === 0) {
@@ -115,6 +123,15 @@ export class LightClient extends DataClient implements LifecycleComponent {
 
 	private stopInitializedComponents(): Error[] {
 		const errors: Error[] = []
+		this.running = false
+		const unsubscribe = this.unsubscribeFromEventCacheService
+		this.unsubscribeFromEventCacheService = undefined
+		try {
+			unsubscribe?.()
+		} catch (error) {
+			this.logger.error(`Error unsubscribing from event cache: ${error}`)
+			errors.push(error instanceof Error ? error : new Error(String(error)))
+		}
 		// A failed storage init must not trigger stop(), which could persist an empty store.
 		for (const component of this.initializedComponents.splice(0).reverse()) {
 			try {
@@ -126,7 +143,6 @@ export class LightClient extends DataClient implements LifecycleComponent {
 			}
 		}
 
-		this.running = false
 		this.initialized = false
 		return errors
 	}

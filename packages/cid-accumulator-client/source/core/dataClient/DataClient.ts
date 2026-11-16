@@ -84,7 +84,7 @@ export class DataClient {
 
 	/**
 	 * @notice Handles a new leaf appended event for this account. Simply passes it along to any subscribers.
-	 * @dev Called by DataClientManager when it learns about a new LeafAppended event
+	 * @dev Called by DataClientManager or LightClient when it learns about a new LeafAppended event
 	 * @param event The leaf record containing the new leaf data (includes payload)
 	 * @return A promise that resolves when the event has been processed
 	 */
