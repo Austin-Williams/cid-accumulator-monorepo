@@ -7,7 +7,7 @@ pragma solidity 0.8.25;
  * Bits 160–164 : peakCount (5 bits) — number of peaks currently in use
  * Bits 165–196 : leafCount (32 bits) — total number of data leaves added
  * Bits 197–228 : previousInsertBlockNumber (32 bits)
- * Bits 229–255 : deployBlockNumber (27 bits) — block number this contract was deployed in
+ * Bits 229–255 : deployBlockNumber (27 bits) — block number this account first appended any data
  *
  * This structure allows us to avoid separate storage slots for peak metadata,
  * reducing gas usage by packing everything into a single uint256.

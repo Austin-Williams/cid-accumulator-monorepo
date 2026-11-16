@@ -43,6 +43,8 @@ In practice, this means that to get all the data payloads from IPFS, you need on
 
 ## How to use the smart contract
 
+The canonical Solidity sources live in the root [`contracts/`](contracts/) directory: the [singleton contract](contracts/singleton/CIDAccumulatorSingleton.sol), its [libraries](contracts/libraries/), and the public [ICIDAccumulatorSingleton interface](contracts/interfaces/ICIDAccumulatorSingleton.sol). Make contract changes here and point Solidity build or test tooling at this directory.
+
 ```solidity
 interface ICIDAccumulator { function appendLeaf(bytes calldata payload) external; }
 
