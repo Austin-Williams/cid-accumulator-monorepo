@@ -71,6 +71,9 @@ export class EventCacheService implements LifecycleComponent {
 	private pollingIntervalMs: number
 	private pollingInterval?: number | ReturnType<typeof setTimeout>
 	private lastPolledBlockNum: number = 0
+	private hasPollingCursor = false
+	private announcedBlocks = new Set<number>()
+	private pollingGeneration = 0
 
 	private initialized: boolean = false
 	private logger: Logger
@@ -110,36 +113,57 @@ export class EventCacheService implements LifecycleComponent {
 	/**
 	 * Start the event cache service
 	 * @notice This will start listening for new events from the blockchain
-	 * @dev This should be called after init()
+	 * @dev Resumes the saved polling cursor and catches up before scheduling new polls.
 	 */
 	public async start(): Promise<void> {
-		// Ensure we're initialized
-		if (!this.initialized) await this.init()
-
-		// If lazyLoadEvents is false, then pre-fetch all contract events up to the latest block
-		if (this.lazyLoadEvents === false) {
-			this.logger.log("Syncing all historical events (lazyLoadEvents=false). This may take some time.")
-			await this.syncEventsUpToLatestBlock()
-			this.logger.log("Synced all historical events")
-		}
-
-		// Start polling if not already started
 		if (this.isPolling) {
 			this.logger.log("Already polling")
 			return
 		}
 		this.isPolling = true
-		this.logger.log("Starting polling")
+		const generation = ++this.pollingGeneration
+		try {
+			if (!this.initialized) await this.init()
+			if (!this.isCurrentPoll(generation)) return
+			const currentBlock = await this.accumulatorContract.getBlockNumber()
+			if (!this.isCurrentPoll(generation)) return
+			const savedCursor = await this.storage.get("events:latestPolledBlock")
+			if (!this.isCurrentPoll(generation)) return
+			if (savedCursor === undefined) {
+				// Keep the first lazy start at the head, but make even a stop before the first tick resumable.
+				await this.storage.put("events:latestPolledBlock", currentBlock.toString())
+				if (!this.isCurrentPoll(generation)) return
+				this.setPollingCursor(currentBlock)
+			} else {
+				const cursor = Number(savedCursor)
+				if (!/^\d+$/.test(savedCursor) || !Number.isSafeInteger(cursor)) {
+					throw new Error(`[EventCacheService] Invalid saved polling cursor: ${savedCursor}`)
+				}
+				// Another service sharing storage may have advanced farther than this one's subscribers.
+				this.setPollingCursor(this.hasPollingCursor ? Math.min(this.lastPolledBlockNum, cursor) : cursor)
+			}
 
-		// Set up recurring polling
-		this.lastPolledBlockNum = await this.accumulatorContract.getBlockNumber()
-		this.pollingInterval = setInterval(() => {
-			if (!this.isPolling) return
+			if (this.lazyLoadEvents === false) {
+				this.logger.log("Syncing all historical events (lazyLoadEvents=false). This may take some time.")
+				await this.syncEventsUpToLatestBlock()
+				this.logger.log("Synced all historical events")
+			}
+			if (!this.isCurrentPoll(generation)) return
 
-			this.pollForNewEvents().catch((error: Error) => {
-				this.logger.error(`Error polling for events: ${error}`)
-			})
-		}, this.pollingIntervalMs)
+			// Catch up before downstream services begin pinning the restarted clients.
+			await this.pollForNewEvents(currentBlock, generation)
+			if (!this.isCurrentPoll(generation)) return
+			this.logger.log("Starting polling")
+			this.pollingInterval = setInterval(() => {
+				if (!this.isCurrentPoll(generation)) return
+				return this.pollForNewEvents(undefined, generation).catch((error: Error) => {
+					this.logger.error(`Error polling for events: ${error}`)
+				})
+			}, this.pollingIntervalMs)
+		} catch (error) {
+			if (generation === this.pollingGeneration) this.isPolling = false
+			throw error
+		}
 	}
 
 	/**
@@ -150,6 +174,7 @@ export class EventCacheService implements LifecycleComponent {
 	public stop(): void {
 		if (!this.isPolling) return
 		this.isPolling = false
+		this.pollingGeneration++
 		this.logger.log("Stopped")
 		// Clear the polling interval
 		if (this.pollingInterval) {
@@ -160,61 +185,79 @@ export class EventCacheService implements LifecycleComponent {
 
 	// PRIMARY METHODS
 
+	private isCurrentPoll(generation: number): boolean {
+		return this.isPolling && generation === this.pollingGeneration
+	}
+
+	private setPollingCursor(blockNumber: number): void {
+		this.lastPolledBlockNum = blockNumber
+		this.hasPollingCursor = true
+		for (const announcedBlock of this.announcedBlocks) {
+			if (announcedBlock <= blockNumber) this.announcedBlocks.delete(announcedBlock)
+		}
+	}
+
 	/**
 	 * Poll for new events from the blockchain
 	 * @dev This is called periodically by the polling interval
 	 * @private
 	 */
-	private async pollForNewEvents(): Promise<void> {
-		try {
-			// Get the current block number
-			const currentBlock = await this.accumulatorContract.getBlockNumber()
+	private async pollForNewEvents(currentBlock?: number, generation = this.pollingGeneration): Promise<void> {
+		currentBlock ??= await this.accumulatorContract.getBlockNumber()
+		if (!this.isCurrentPoll(generation)) return
 
-			// If we're already at the latest block, nothing to do
-			if (currentBlock <= this.lastPolledBlockNum) return
+		// If we're already at the latest block, nothing to do
+		if (currentBlock <= this.lastPolledBlockNum) return
 
-			// Process blocks in batches to avoid overwhelming the RPC
-			const batchSize = 10
-			for (let startBlock = this.lastPolledBlockNum + 1; startBlock <= currentBlock; startBlock += batchSize) {
-				// If we're no longer running, exit early
-				if (!this.isPolling) return
+		// Process blocks in batches to avoid overwhelming the RPC
+		const batchSize = 10
+		for (let startBlock = this.lastPolledBlockNum + 1; startBlock <= currentBlock; startBlock += batchSize) {
+			// If we're no longer running, exit early
+			if (!this.isCurrentPoll(generation)) return
 
-				const endBlock = Math.min(startBlock + batchSize - 1, currentBlock)
+			const endBlock = Math.min(startBlock + batchSize - 1, currentBlock)
 
-				// Get events for this batch
-				const events: NormalizedLeafAppendedEvent[] = await this.accumulatorContract.getLeafAppendedLogs(
-					startBlock,
-					endBlock,
-					this.specificAccountsMode ? this.specificAccounts : undefined
+			// Get events for this batch
+			const events: NormalizedLeafAppendedEvent[] = await this.accumulatorContract.getLeafAppendedLogs(
+				startBlock,
+				endBlock,
+				this.specificAccountsMode ? this.specificAccounts : undefined
+			)
+			if (!this.isCurrentPoll(generation)) return
+
+			// Group events by block
+			const blockToEvents = new Map<number, NormalizedLeafAppendedEvent[]>()
+			for (const event of events) {
+				if (!blockToEvents.has(event.blockNumber)) {
+					blockToEvents.set(event.blockNumber, [])
+				}
+				blockToEvents.get(event.blockNumber)!.push(event)
+				this.logger.log(
+					`Account ${event.account} has a new leaf with index ${event.leafIndex} in block ${event.blockNumber}`
 				)
-
-				// Group events by block
-				const blockToEvents = new Map<number, NormalizedLeafAppendedEvent[]>()
-				for (const event of events) {
-					if (!blockToEvents.has(event.blockNumber)) {
-						blockToEvents.set(event.blockNumber, [])
-					}
-					blockToEvents.get(event.blockNumber)!.push(event)
-					this.logger.log(
-						`Account ${event.account} has a new leaf with index ${event.leafIndex} in block ${event.blockNumber}`
-					)
-				}
-
-				// Process each block
-				for (let blockNum = startBlock; blockNum <= endBlock; blockNum++) {
-					const blockEvents = blockToEvents.get(blockNum) || []
-					await this.processEventsForBlock(blockNum, blockEvents)
-
-					// Update the last processed block
-					this.lastPolledBlockNum = blockNum
-					await this.storage.put("events:latestPolledBlock", blockNum.toString())
-				}
 			}
 
-			this.logger.log(`Processed events up to block ${this.lastPolledBlockNum}`)
-		} catch (error) {
-			this.logger.error(`Error polling for events: ${error}`)
+			// Process each block
+			for (let blockNum = startBlock; blockNum <= endBlock; blockNum++) {
+				if (!this.isCurrentPoll(generation)) return
+				if (blockNum <= this.lastPolledBlockNum) continue
+				// Only skip blocks this service has announced through on-demand reads or eager prefetch.
+				// Another service's cached block does not mean our subscribers received its events.
+				if (!this.announcedBlocks.has(blockNum)) {
+					const blockEvents = blockToEvents.get(blockNum) || []
+					await this.processEventsForBlock(blockNum, blockEvents)
+				}
+				if (!this.isCurrentPoll(generation)) return
+
+				// Advance only after processing and persisting the cursor have succeeded.
+				await this.storage.put("events:latestPolledBlock", blockNum.toString())
+				if (!this.isCurrentPoll(generation)) return
+				this.lastPolledBlockNum = blockNum
+				this.announcedBlocks.delete(blockNum)
+			}
 		}
+
+		this.logger.log(`Processed events up to block ${this.lastPolledBlockNum}`)
 	}
 
 	/**
@@ -531,6 +574,14 @@ export class EventCacheService implements LifecycleComponent {
 		}
 	}
 
+	private announceEventsForBlock(blockNumber: number, events: NormalizedLeafAppendedEvent[]): void {
+		// Remember on-demand and eager notifications until polling has passed this block.
+		if (blockNumber > this.lastPolledBlockNum) this.announcedBlocks.add(blockNumber)
+		for (const event of events) {
+			this.notifySubscribers(getLeafRecordFromNormalizedLeafAppendedEvent(event))
+		}
+	}
+
 	/**
 	 * Stores a leaf record in the database using the standard schema
 	 * @param event The normalized leaf appended event to store
@@ -576,9 +627,7 @@ export class EventCacheService implements LifecycleComponent {
 		await this.storage.put(`events:block:${blockNumber}`, JSON.stringify(Array.from(eventsByAccount.keys())))
 
 		// Notify subscribers
-		for (const event of events) {
-			this.notifySubscribers(getLeafRecordFromNormalizedLeafAppendedEvent(event))
-		}
+		this.announceEventsForBlock(blockNumber, events)
 	}
 }
 

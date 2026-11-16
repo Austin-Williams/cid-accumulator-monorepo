@@ -28,6 +28,7 @@ export class DataClientManager implements LifecycleComponent {
 	private unsubscribeFromEventCacheService: () => void = () => {}
 	private initialized: boolean = false
 	private isRunning: boolean = false
+	private startGeneration = 0
 	protected logger: Logger
 
 	constructor(
@@ -88,8 +89,24 @@ export class DataClientManager implements LifecycleComponent {
 			return
 		}
 		this.isRunning = true
+		const generation = ++this.startGeneration
 
 		if (!this.initialized) await this.init()
+		// A retained client may have missed events while stopped. Let any older sync
+		// finish first so it cannot restore the flag after we invalidate its snapshot.
+		await Promise.all(
+			Array.from(this.dataClients.values(), async (client) => {
+				if (client.syncing) {
+					try {
+						await client.sync()
+					} catch {
+						// An earlier failure must not prevent the fresh sync below.
+					}
+				}
+				if (this.isRunning && generation === this.startGeneration) client.completedInitialSync = false
+			})
+		)
+		if (!this.isRunning || generation !== this.startGeneration) return
 
 		// Start syncing in the background with error handling
 		this.syncAllDataClients().catch((error) => {
@@ -113,6 +130,7 @@ export class DataClientManager implements LifecycleComponent {
 		this.unsubscribeFromAccountRegistryService()
 		this.unsubscribeFromEventCacheService()
 		this.isRunning = false
+		this.startGeneration++
 		this.initialized = false
 		this.logger.log("Stopped")
 	}
