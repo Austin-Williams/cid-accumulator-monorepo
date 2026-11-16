@@ -50,7 +50,7 @@ export async function putLeafRecordInDB(
 		[
 			"mergeLeftHashes",
 			value.mergeLeftHashes,
-			(val: CID<unknown, 113, 18, 1>[]) => JSON.stringify(val.map((cid) => cid.toString())),
+			(val: CID<unknown, 113, 27, 1>[]) => JSON.stringify(val.map((cid) => cid.toString())),
 		],
 		["previousInsertBlockNumber", value.previousInsertBlockNumber, (val: number) => val.toString()],
 		["rootCidAfterInsert", value.rootCidAfterInsert, (val: CID) => val.toString()],

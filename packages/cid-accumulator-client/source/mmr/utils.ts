@@ -6,7 +6,7 @@ import { NULL_CID } from "../utils/constants.js"
 // Computes the root CID from an array of peak CIDs, left-to-right bagging (canonical MMR logic).
 // @param peaks Array of CIDs (left-to-right order)
 // @returns The root CID (or the zero CID if peaks is empty)
-export async function getRootCIDFromPeaks(peaks: CID<unknown, 113, 18, 1>[]): Promise<CID<unknown, 113, 18, 1>> {
+export async function getRootCIDFromPeaks(peaks: CID<unknown, 113, 27, 1>[]): Promise<CID<unknown, 113, 27, 1>> {
 	if (peaks.length === 0) {
 		return NULL_CID
 	}
@@ -26,8 +26,8 @@ export async function getRootCIDFromPeaks(peaks: CID<unknown, 113, 18, 1>[]): Pr
 export async function computePreviousRootCIDAndPeaksWithHeights(
 	currentPeaksWithHeights: PeakWithHeight[],
 	_payload: Uint8Array,
-	mergeLeftHashesDuringLatestMerge: CID<unknown, 113, 18, 1>[]
-): Promise<{ previousRootCID: CID<unknown, 113, 18, 1>; previousPeaksWithHeights: PeakWithHeight[] }> {
+	mergeLeftHashesDuringLatestMerge: CID<unknown, 113, 27, 1>[]
+): Promise<{ previousRootCID: CID<unknown, 113, 27, 1>; previousPeaksWithHeights: PeakWithHeight[] }> {
 	if (currentPeaksWithHeights.length === 0) {
 		return { previousRootCID: NULL_CID, previousPeaksWithHeights: [] }
 	}

@@ -6,7 +6,7 @@ import { createLogger } from "../utils/logging.js"
 import type { Logger } from "../types/common.js"
 
 export class MerkleMountainRange {
-	public peaks: CID<unknown, 113, 18, 1>[] = []
+	public peaks: CID<unknown, 113, 27, 1>[] = []
 	public leafCount = 0
 	private leafAppendedTrailSubscribers: ((trail: MMRLeafAppendedTrail) => void)[] = []
 	protected logger: Logger
@@ -74,7 +74,7 @@ export class MerkleMountainRange {
 	// @returns An object containing the root CID and the trail of CID/Data pairs.
 	// The root is redundant (because the last item in the trail is the root) but convenient.
 	async rootCIDWithTrail(): Promise<{
-		root: CID<unknown, 113, 18, 1> // Redundant (because the last item in the trail is the root) but convenient
+		root: CID<unknown, 113, 27, 1> // Redundant (because the last item in the trail is the root) but convenient
 		trail: MMRLeafAppendedTrail
 	}> {
 		const trail: MMRLeafAppendedTrail = []
@@ -97,7 +97,7 @@ export class MerkleMountainRange {
 		return { root: current, trail }
 	}
 
-	async rootCID(): Promise<CID<unknown, 113, 18, 1>> {
+	async rootCID(): Promise<CID<unknown, 113, 27, 1>> {
 		const result = await this.rootCIDWithTrail()
 		return result.root
 	}

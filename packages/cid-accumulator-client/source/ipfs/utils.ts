@@ -1,4 +1,4 @@
-import { sha256 } from "../utils/hash.js"
+import { keccak256 } from "../utils/hash.js"
 import type { DagCborEncodedData, IpldNode } from "./types.js"
 import { CID } from "./CID.js"
 import { hashToMultiformatsDigest, isInternalNode, isIpldLink } from "../utils/codec.js"
@@ -109,21 +109,21 @@ export async function getRemotePinningServices(baseUrl: string): Promise<string[
 
 export async function verifyCIDAgainstDagCborEncodedData(
 	dagCborEncodedData: DagCborEncodedData,
-	expectedCID: CID<unknown, 113, 18, 1>
+	expectedCID: CID<unknown, 113, 27, 1>
 ): Promise<boolean> {
-	const hash = await sha256(dagCborEncodedData)
-	const multihash = hashToMultiformatsDigest(0x12, hash) // 0x12 is the code for sha2-256
+	const hash = keccak256(dagCborEncodedData)
+	const multihash = hashToMultiformatsDigest(0x1b, hash) // 0x1b is the code for keccak-256
 	const computedCID = CID.createV1(dagCbor.code, multihash)
 	return computedCID.toString() === expectedCID.toString()
 }
 
 export async function verifyCIDAgainstDagCborEncodedDataOrThrow(
 	dagCborEncodedData: DagCborEncodedData,
-	expectedCID: CID<unknown, 113, 18, 1>,
+	expectedCID: CID<unknown, 113, 27, 1>,
 	errorMessage?: string
 ): Promise<void> {
-	const hash = await sha256(dagCborEncodedData)
-	const multihash = hashToMultiformatsDigest(0x12, hash) // 0x12 is the code for sha2-256
+	const hash = keccak256(dagCborEncodedData)
+	const multihash = hashToMultiformatsDigest(0x1b, hash) // 0x1b is the code for keccak-256
 	const computedCID = CID.createV1(dagCbor.code, multihash)
 	const message: string =
 		errorMessage ??
@@ -138,7 +138,7 @@ export async function verifyCIDAgainstDagCborEncodedDataOrThrow(
  * @param cid The root CID of the Merkle tree to resolve. Must be CID.
  * @return Promise<boolean> Resolves to true if the DAG is successfully resolved, false otherwise.
  */
-export async function resolveMerkleTreeFromLocalMap(cid: CID<unknown, 113, 18, 1>, cidStringToDataMap: Map<string, DagCborEncodedData>): Promise<boolean> {
+export async function resolveMerkleTreeFromLocalMap(cid: CID<unknown, 113, 27, 1>, cidStringToDataMap: Map<string, DagCborEncodedData>): Promise<boolean> {
 	const dagCborEncodedData: DagCborEncodedData | undefined = cidStringToDataMap.get(cid.toString())
 	if (!dagCborEncodedData) return false
 

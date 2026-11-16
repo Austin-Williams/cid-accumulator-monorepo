@@ -108,7 +108,7 @@ export async function parseLeafAppendedLog(log: RawEthLog): Promise<NormalizedLe
 
 	const payloadStart = (payloadOffset + 32) * 2
 	const payload = hexStringToUint8Array(data.slice(payloadStart, payloadStart + Number(payloadLen) * 2))
-	const mergeLeftHashes: CID<unknown, 113, 18, 1>[] = []
+	const mergeLeftHashes: CID<unknown, 113, 27, 1>[] = []
 	const mergeCount = Number(mergeLeftHashesLen)
 	for (let i = 0; i < mergeCount; i++) {
 		const start = (mergeLeftHashesOffset + 32 + i * 32) * 2

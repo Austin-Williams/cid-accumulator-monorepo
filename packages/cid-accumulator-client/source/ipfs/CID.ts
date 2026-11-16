@@ -1,5 +1,5 @@
 // Minimal drop-in replacement for multiformats/cid CID class
-// Supports dag-cbor (0x71), sha2-256 (0x12), and V1 CIDs
+// Supports dag-cbor (0x71), keccak-256 (0x1b), and V1 CIDs
 // Generics: CID<T = unknown, Code extends number = number, Alg extends number = number, Version extends number = number>
 
 // Minimal base32 encoding/decoding for CID string representation

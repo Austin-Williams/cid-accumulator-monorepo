@@ -97,7 +97,7 @@ export class IpfsPinner implements LifecycleComponent {
 		const res = await postIpfsBinary(
 			this.baseUrl,
 			"block/put",
-			{ format: "dag-cbor", mhtype: "sha2-256", "cid-version": "1", pin: "true" },
+			{ format: "dag-cbor", mhtype: "keccak-256", "cid-version": "1", pin: "true" },
 			dagCborEncodedData
 		)
 
@@ -117,7 +117,7 @@ export class IpfsPinner implements LifecycleComponent {
 	 * @param cid - CID to pin
 	 * @param account - Optional account identifier to use in the name for the pin
 	 */
-	private async handleRemotePinning(cid: CID<unknown, 113, 18, 1>, account: EthereumAddress): Promise<void> {
+	private async handleRemotePinning(cid: CID<unknown, 113, 27, 1>, account: EthereumAddress): Promise<void> {
 		if (!this.remotePin) return
 		if (!this.initialized) await this.init()
 		if (this.remotePinningServices.size === 0) return

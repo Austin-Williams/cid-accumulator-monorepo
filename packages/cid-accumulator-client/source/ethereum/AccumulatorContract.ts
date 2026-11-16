@@ -104,7 +104,7 @@ export class AccumulatorContract implements LifecycleComponent {
 	 * @param account The account address to get the root CID for
 	 * @returns The root CID as a CID
 	 */
-	async getRootCID(account: EthereumAddress, block: BlockReference = "latest"): Promise<CID<unknown, 113, 18, 1>> {
+	async getRootCID(account: EthereumAddress, block: BlockReference = "latest"): Promise<CID<unknown, 113, 27, 1>> {
 		return this.rateLimiter.execute(() =>
 			getRootCID({
 				ethereumHttpRpcUrl: this.ethereumHttpRpcUrl,

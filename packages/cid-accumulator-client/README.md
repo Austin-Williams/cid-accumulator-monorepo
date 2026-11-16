@@ -6,6 +6,10 @@ Universal JavaScript/TypeScript client for interacting with smart contracts that
 
 The CID Accumulator Client is off-chain code for fetching and verifying data for users of the CIDAccumulatorSingleton contract on Ethereum. It provides a light client, ideal for retrieving data (for example, in a browser UI or lightweight Node.js application). It also offers a "seeder" client (Node.js only) that can be kept running to pin all the accumulator's payload data to IPFS.
 
+The mainnet contract address is `NOT_YET_DEPLOYED`. Replace this placeholder in examples with a deployed contract address and configure the corresponding Ethereum RPC URL. For local development, deploy the contract to your local chain and use `http://127.0.0.1:8545`.
+
+The client creates and verifies CIDv1 DAG-CBOR blocks using Keccak-256 (multihash code `0x1b`). Kubo uploads use `mhtype=keccak-256`.
+
 ## Requirements
 
 - **Light Client**: Works in both modern browsers and Node.js (26.13.1 or later).
@@ -29,7 +33,11 @@ The light client retrieves all payload data for a single Ethereum address. It ca
 import { createLightClient } from 'cid-accumulator-client'
 
 // Create a light client for a specific account
-const client = await createLightClient('0xYourEthereumAddress')
+const client = await createLightClient('0xYourEthereumAddress', {
+  accumulatorContractConfig: {
+    accumulatorContractAddress: 'NOT_YET_DEPLOYED', // Replace with your deployed contract address
+  },
+})
 
 // Start the client and let it sync
 await client.start()
@@ -100,7 +108,7 @@ On the first run with an older cache that has no block-hash checkpoints, the cli
 
 Light clients can use a free-tier public Ethereum RPC provider (e.g., Infura, Alchemy) and a local or hosted IPFS HTTP gateway. With that in mind, the client has been optimized to minimize the number and "weight" of RPC calls made to Ethereum and IPFS gateways. It also includes built-in rate limiting with automatic back-off and retries to prevent being blocked by public RPCs and gateways.
 
-The light client is highly configurable via an optional `config` parameter. The example below shows the default configuration. Any or all of the options can be customized to suit your needs.
+The light client requires `config.accumulatorContractConfig.accumulatorContractAddress`. All other settings are optional. The example below shows their defaults; customize them to suit your deployment.
 
 The default IPFS endpoint requires Kubo running locally. To use a hosted HTTP gateway, set `ipfsResolverConfig.gatewayUrl` to an endpoint that serves raw blocks and CAR responses. For manual browser access, use [inbrowser.link](https://inbrowser.link); it retrieves content through a browser service worker and cannot serve as this client's HTTP endpoint.
 
@@ -111,21 +119,21 @@ const config = {
   nodeDbPath: "./db/cid-accumulator-light-client.json",
   browserDbName: "cid-accumulator",
   accumulatorContractConfig: {
-    accumulatorContractAddress: "0x8fA8C72c306f736701B3FC27976fAd25413fF5bF"
-    ethereumHttpRpcUrl: "https://ethereum-rpc.publicnode.com"
+    accumulatorContractAddress: "NOT_YET_DEPLOYED",
+    ethereumHttpRpcUrl: "https://ethereum-rpc.publicnode.com",
     rateLimiterOptions: {
       intervalMs: 2000,
       maxRetries: 3,
       baseDelay: 1000,
       capDelay: 10000,
-    }
-  }
+    },
+  },
   eventCacheServiceConfig: {
     lazyLoadEvents: true,
     pollingIntervalMs: 12000,
-  }
+  },
   ipfsResolverConfig: {
-    gatewayUrl: "http://127.0.0.1:8080"
+    gatewayUrl: "http://127.0.0.1:8080",
     rateLimiterOptions: {
       intervalMs: 200,
       maxRetries: 3,
@@ -143,7 +151,7 @@ await client.start()
 Both client factories accept separate storage settings for each environment:
 
 - `nodeDbPath` selects the database file in Node.js.
-- `browserDbName` selects the IndexedDB database in browsers. Its default remains `cid-accumulator`, so existing browser caches continue to work. Clients on the same browser origin share storage when they use the same name; choose distinct names for different chains or accumulator contracts.
+- `browserDbName` selects the IndexedDB database in browsers. Its default is `cid-accumulator`. Clients on the same browser origin share storage when they use the same name; choose distinct names for different chains or accumulator contracts.
 
 ## Seeder
 
@@ -165,13 +173,13 @@ There are two ways to run a seeder.
 
 ### Run a seeder from command line
 
-You can clone this repo and run the seeder from the command line with the default options:
+You can clone this repo and run the seeder from the command line by specifying your deployed contract address:
 
 ```bash
 git clone https://github.com/Austin-Williams/cid-accumulator-singleton.git
 cd cid-accumulator-singleton
 npm ci
-npm run seeder --workspace cid-accumulator-client
+npm run seeder --workspace cid-accumulator-client -- --accumulatorContractAddress=NOT_YET_DEPLOYED
 ```
 
 Run `npm ci` from the repository root to install all workspace dependencies using the committed `package-lock.json`.
@@ -179,14 +187,14 @@ Run `npm ci` from the repository root to install all workspace dependencies usin
 You can also run it with custom options. For example:
 
 ```bash
-npm run seeder --workspace cid-accumulator-client -- --remotePin=true --ethereumHttpRpcUrl=https://mainnet.infura.io/v3/<YourInfuraApiKey>
+npm run seeder --workspace cid-accumulator-client -- --accumulatorContractAddress=NOT_YET_DEPLOYED --remotePin=true --ethereumHttpRpcUrl=https://mainnet.infura.io/v3/<YourInfuraApiKey>
 ```
 
-**Available options (defaults shown):**
+**Available options (contract address required; other defaults shown):**
 
 ```bash
-The Ethereum address of the accumulator contract
---accumulatorContractAddress=0x8fA8C72c306f736701B3FC27976fAd25413fF5bF
+The Ethereum address of your deployed accumulator contract (required)
+--accumulatorContractAddress=NOT_YET_DEPLOYED
 
 JSON array of Ethereum addresses to track (leave empty to pin for all accounts)
 --specificAccountsOnly='[]'
@@ -218,8 +226,12 @@ Another option is to run a seeder programmatically:
 ```typescript
 import { createSeeder } from 'cid-accumulator-client';
 
-// Create a seeder with your Ethereum wallet
-const seeder = await createSeeder()
+// Create a seeder for your deployed accumulator contract
+const seeder = await createSeeder({
+  accumulatorContractConfig: {
+    accumulatorContractAddress: 'NOT_YET_DEPLOYED', // Replace with your deployed contract address
+  },
+})
 
 // Start the seeder. It will sync and pin all accumulator data to IPFS
 await seeder.start()
@@ -228,14 +240,16 @@ await seeder.start()
 await seeder.stop()
 ```
 
-You can also pass in a custom config to the seeder. The example below shows the default configuration. Any or all of the options can be customized to suit your needs.
+The seeder requires `config.accumulatorContractConfig.accumulatorContractAddress`. The example below shows the defaults for all other settings, which can be customized to suit your deployment.
 
 ```typescript
+import { createSeeder, type SeederConfigUserInput } from 'cid-accumulator-client'
+
 const config: SeederConfigUserInput = {
   nodeDbPath: "./db/cid-accumulator-seeder.json",
   browserDbName: "cid-accumulator",
   accumulatorContractConfig: {
-    accumulatorContractAddress: "0x8fA8C72c306f736701B3FC27976fAd25413fF5bF",
+    accumulatorContractAddress: "NOT_YET_DEPLOYED",
     ethereumHttpRpcUrl: "http://127.0.0.1:8545",
     rateLimiterOptions: {
       intervalMs: 10,
@@ -284,7 +298,7 @@ await seeder.stop()
 
 ## Contract Addresses
 
-- Mainnet: `0x8fA8C72c306f736701B3FC27976fAd25413fF5bF`
+- Mainnet: `NOT_YET_DEPLOYED`
 
 ## License
 

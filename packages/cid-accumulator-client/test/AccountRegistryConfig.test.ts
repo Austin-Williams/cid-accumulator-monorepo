@@ -16,7 +16,7 @@ import { InMemoryAdapter } from "../source/storage/adapters/InMemoryAdapter.js"
 function fixture(t: TestContext) {
 	t.mock.method(console, "log", () => {})
 	const account = new EthereumAddress("0x" + "11".repeat(20))
-	const contract = new AccumulatorContract(defaultLightClientAccumulatorContractConfig)
+	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
 	mockChain(t, contract)
 	t.mock.method(contract, "getSingletonBirthdayBlockNum", async () => 1)
 	t.mock.method(contract, "getBlockNumber", async () => 2)

@@ -47,7 +47,7 @@ function fixture(t: TestContext) {
 	const intervals = t.mock.method(globalThis, "setInterval")
 	const storage = new InMemoryAdapter()
 	const account = new EthereumAddress("0x" + "11".repeat(20))
-	const contract = new AccumulatorContract(defaultLightClientAccumulatorContractConfig)
+	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
 	mockChain(t, contract, storage)
 	const registry = new AccountRegistryService(storage, contract, {
 		...defaultSeederAccountRegistryServiceConfig,

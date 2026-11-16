@@ -34,7 +34,7 @@ export class IpfsResolver implements LifecycleComponent {
 	 * @dev Stores any blocks retrieved from IPFS in the local DB if it is not already present.
 	 * @dev The DagCborEncodedData can be decoded via dagCbor.decode.
 	 */
-	public async getBlock(cid: CID<unknown, 113, 18, 1>, localStorageOnly: boolean = false): Promise<DagCborEncodedData | undefined> {
+	public async getBlock(cid: CID<unknown, 113, 27, 1>, localStorageOnly: boolean = false): Promise<DagCborEncodedData | undefined> {
 		// Check if we already have this CID in the local DB
 		const cidString = cid.toString()
 		const key = `ipfs:block:${cidString}`
@@ -98,7 +98,7 @@ export class IpfsResolver implements LifecycleComponent {
 	 * @return An iterable of leaf payloads in order if the entire DAG was resolved, or undefined otherwise.
 	 */
 	public async fullyResolveCID(
-		cid: CID<unknown, 113, 18, 1>
+		cid: CID<unknown, 113, 27, 1>
 	): Promise<AsyncIterable<{ leafIndex: number; payload: Uint8Array }> | undefined> {
 		// Try to resolve the root CID using local storage only
 		const resolvedViaLocalStorage = await this.resolveMerkleTree(cid, true)
@@ -172,7 +172,7 @@ export class IpfsResolver implements LifecycleComponent {
 		return deletedCount
 	}
 
-	private async getAndCacheMerkleTreeViaCarFile(rootCid: CID<unknown, 113, 18, 1>): Promise<boolean> {
+	private async getAndCacheMerkleTreeViaCarFile(rootCid: CID<unknown, 113, 27, 1>): Promise<boolean> {
 		const url = buildIpfsUrl(this.gatewayUrl, `ipfs/${rootCid.toString()}`, { format: "car" }).toString()
 		const controller = new AbortController()
 		const timeoutId = setTimeout(() => controller.abort(), 15000)
@@ -189,7 +189,7 @@ export class IpfsResolver implements LifecycleComponent {
 
 			// Verify each block before checking whether the CAR contains the complete requested tree.
 			for await (const block of carReader.blocks()) {
-				const computedCID = await verifyCIDAgainstDagCborEncodedData(block.bytes as DagCborEncodedData, block.cid as CID<unknown, 113, 18, 1>)
+				const computedCID = await verifyCIDAgainstDagCborEncodedData(block.bytes as DagCborEncodedData, block.cid as CID<unknown, 113, 27, 1>)
 				if (!computedCID) throw new Error(`CID/Data pair is invalid. dagCborEncodedData: ${block.bytes}, expectedCID: ${block.cid.toString()}`)
 				cidStringToDataMap.set(block.cid.toString(), block.bytes as DagCborEncodedData)
 			}
@@ -226,13 +226,13 @@ export class IpfsResolver implements LifecycleComponent {
 	 * @return AsyncIterable that yields objects with leafIndex and payload
 	 */
 	private createPayloadsAsyncIterable(
-		rootCid: CID<unknown, 113, 18, 1>
+		rootCid: CID<unknown, 113, 27, 1>
 	): AsyncIterable<{ leafIndex: number; payload: Uint8Array }> {
 		// Keep track of the current leaf index
 		let leafIndex = 0
 
 		// Stack for DFS traversal
-		const stack: CID<unknown, 113, 18, 1>[] = [rootCid]
+		const stack: CID<unknown, 113, 27, 1>[] = [rootCid]
 
 		// Store a reference to this instance for use in the iterator
 		const adapter = this
@@ -327,7 +327,7 @@ export class IpfsResolver implements LifecycleComponent {
 	 * @param cid The root CID of the Merkle tree to resolve. Must be CID.
 	 * @return Promise<boolean> Resolves to true if the DAG is successfully resolved, false otherwise
 	 */
-	private async resolveMerkleTree(cid: CID<unknown, 113, 18, 1>, localStorageOnly: boolean = false): Promise<boolean> {
+	private async resolveMerkleTree(cid: CID<unknown, 113, 27, 1>, localStorageOnly: boolean = false): Promise<boolean> {
 		const dagCborEncodedData = await this.getBlock(cid, localStorageOnly)
 		if (!dagCborEncodedData) return false
 

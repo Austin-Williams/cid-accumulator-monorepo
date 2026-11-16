@@ -1,4 +1,4 @@
-import type { AccumulatorContractConfig } from "../../ethereum/AccumulatorContract.types.js"
+import type { AccumulatorContractConfig, AccumulatorContractConfigUserInput } from "../../ethereum/AccumulatorContract.types.js"
 import type { EventCacheService } from "../../services/EventCacheService.js"
 import type { EventCacheServiceConfig } from "../../services/EventCacheService.types.js"
 import type { IpfsResolver } from "../../ipfs/IpfsResolver.js"
@@ -6,7 +6,9 @@ import type { IpfsResolverConfig } from "../../ipfs/IpfsResolver.types.js"
 import type { Storage, StorageConfig } from "../../storage/interface.js"
 import type { DeepPartial } from "../../types/common.js"
 
-export interface LightClientConfigUserInput extends DeepPartial<LightClientConfig> {}
+export interface LightClientConfigUserInput extends DeepPartial<LightClientConfig> {
+	accumulatorContractConfig: AccumulatorContractConfigUserInput
+}
 
 export interface LightClientConfig extends StorageConfig {
 	accumulatorContractConfig: Required<AccumulatorContractConfig>

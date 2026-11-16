@@ -131,7 +131,7 @@ export async function getRootCID(params: {
 	contractAddress: EthereumAddress
 	account: EthereumAddress
 	block?: BlockReference
-}): Promise<CID<unknown, 113, 18, 1>> {
+}): Promise<CID<unknown, 113, 27, 1>> {
 	const { ethereumHttpRpcUrl, contractAddress, account, block = "latest" } = params
 	const signature = "getRootCID(address)"
 	const selector = getSelector(signature)
@@ -159,7 +159,7 @@ export async function getState(params: {
 		const [mmrMetaBits, peaks] = parseGetStateResult(accumulatorDataHex)
 		const meta = parseAccumulatorMetaBits(mmrMetaBits)
 		const activePeaks: Uint8Array[] = peaks.slice(0, meta.peakCount) // only active peaks
-		const activePeaksAsCids: CID<unknown, 113, 18, 1>[] = activePeaks.map(contractPeakHexToMmrCid)
+		const activePeaksAsCids: CID<unknown, 113, 27, 1>[] = activePeaks.map(contractPeakHexToMmrCid)
 		const activePeaksWithHeight: PeakWithHeight[] = activePeaksAsCids.map((cid, i) => ({
 			cid,
 			height: meta.peakHeights[i],

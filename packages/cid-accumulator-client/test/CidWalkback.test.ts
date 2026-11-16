@@ -108,7 +108,7 @@ describe("historical CID reconstruction", { concurrency: false, timeout: 5000 },
 			})
 			const resolve = t.mock.method(resolver, "fullyResolveCID")
 			const account = new EthereumAddress("0x" + "11".repeat(20))
-			const contract = new AccumulatorContract(defaultLightClientAccumulatorContractConfig)
+			const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
 			mockChain(t, contract, storage)
 			t.mock.method(contract, "getSingletonBirthdayBlockNum", async () => 1)
 			t.mock.method(contract, "getState", async () => ({

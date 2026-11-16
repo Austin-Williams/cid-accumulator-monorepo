@@ -1,5 +1,3 @@
-import { EthereumAddress } from "../ethereum/EthereumAddress.js"
-
 import type { AccumulatorContractConfig } from "../ethereum/AccumulatorContract.types.js"
 import type { AccountRegistryServiceConfig } from "../services/AccountRegistryService.types.js"
 import type { EventCacheServiceConfig } from "../services/EventCacheService.types.js"
@@ -10,8 +8,6 @@ import type { LightClientConfig } from "../core/lightClient/LightClient.types.js
 import type { RateLimiterOptions } from "../types/common.js"
 
 // ETHEREUM
-export const defaultAccumulatorContractAddress = new EthereumAddress("0x8fA8C72c306f736701B3FC27976fAd25413fF5bF")
-
 export const defaultLightClientEthereumHttpRpcUrl = "https://ethereum-rpc.publicnode.com"
 export const defaultSeederEthereumHttpRpcUrl = "http://127.0.0.1:8545"
 
@@ -27,13 +23,11 @@ export const defaultSeederEthereumRpcRateLimiterOptions: Required<RateLimiterOpt
 	baseDelay: 100,
 	capDelay: 5000,
 }
-export const defaultLightClientAccumulatorContractConfig: AccumulatorContractConfig = {
-	accumulatorContractAddress: defaultAccumulatorContractAddress,
+export const defaultLightClientAccumulatorContractConfig: Omit<AccumulatorContractConfig, "accumulatorContractAddress"> = {
 	ethereumHttpRpcUrl: defaultLightClientEthereumHttpRpcUrl,
 	rateLimiterOptions: defaultLightClientEthereumRpcRateLimiterOptions,
 }
-export const defaultSeederAccumulatorContractConfig: AccumulatorContractConfig = {
-	accumulatorContractAddress: defaultAccumulatorContractAddress,
+export const defaultSeederAccumulatorContractConfig: Omit<AccumulatorContractConfig, "accumulatorContractAddress"> = {
 	ethereumHttpRpcUrl: defaultSeederEthereumHttpRpcUrl,
 	rateLimiterOptions: defaultSeederEthereumRpcRateLimiterOptions,
 }
@@ -108,16 +102,18 @@ export const defaultSyncCheckIntervalMs = 1 * 60 * 1000 // 60 seconds by default
 
 // CLIENTS
 // Light Client
-export const defaultLightClientConfig: Required<LightClientConfig> = {
+export const defaultLightClientConfig = {
 	nodeDbPath: "./db/cid-accumulator-light-client.json",
 	browserDbName: "cid-accumulator",
 	accumulatorContractConfig: defaultLightClientAccumulatorContractConfig,
 	eventCacheServiceConfig: defaultLightClientEventCacheServiceConfig,
 	ipfsResolverConfig: defaultLightClientIpfsResolverConfig,
+} satisfies Omit<Required<LightClientConfig>, "accumulatorContractConfig"> & {
+	accumulatorContractConfig: Omit<AccumulatorContractConfig, "accumulatorContractAddress">
 }
 
 // Seeder
-export const defaultSeederConfig: SeederConfig = {
+export const defaultSeederConfig = {
 	nodeDbPath: "./db/cid-accumulator-seeder.json",
 	browserDbName: "cid-accumulator",
 	accumulatorContractConfig: defaultSeederAccumulatorContractConfig,
@@ -126,4 +122,6 @@ export const defaultSeederConfig: SeederConfig = {
 	ipfsResolverConfig: defaultSeederIpfsResolverConfig,
 	ipfsPinnerConfig: defaultIpfsPinnerConfig,
 	syncCheckIntervalMs: defaultSyncCheckIntervalMs,
+} satisfies Omit<SeederConfig, "accumulatorContractConfig"> & {
+	accumulatorContractConfig: Omit<AccumulatorContractConfig, "accumulatorContractAddress">
 }

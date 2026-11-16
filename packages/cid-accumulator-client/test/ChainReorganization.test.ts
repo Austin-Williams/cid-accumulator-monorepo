@@ -42,7 +42,7 @@ async function fixture(t: TestContext) {
 	const account = new EthereumAddress("0x" + "ab".repeat(20))
 	const storage = new InMemoryAdapter()
 	t.mock.method(storage, "stop", () => {})
-	const contract = new AccumulatorContract(defaultLightClientAccumulatorContractConfig)
+	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
 	let nextHash = 1
 	const hash = () => "0x" + (nextHash++).toString(16).padStart(64, "0")
 	const genesis: BranchBlock = {

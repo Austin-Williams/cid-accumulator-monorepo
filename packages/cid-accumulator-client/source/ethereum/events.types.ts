@@ -22,7 +22,7 @@ export type NormalizedLeafAppendedEvent = {
 	leafIndex: number
 	previousInsertBlockNumber: number
 	payload: Uint8Array
-	mergeLeftHashes: CID<unknown, 113, 18, 1>[]
+	mergeLeftHashes: CID<unknown, 113, 27, 1>[]
 	blockNumber: number
 	blockHash?: string
 }

@@ -36,7 +36,7 @@ function fixture(t: TestContext) {
 		mergeLeftHashes: [],
 	}))
 	let head = 9
-	const contract = new AccumulatorContract(defaultLightClientAccumulatorContractConfig)
+	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
 	mockChain(t, contract, storage)
 	t.mock.method(contract, "getSingletonBirthdayBlockNum", async () => 1)
 	t.mock.method(contract, "getBlockNumber", async () => head)

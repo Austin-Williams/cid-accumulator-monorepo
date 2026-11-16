@@ -16,12 +16,12 @@ export async function runSeeder() {
 	console.log("accumulatorContractAddress", cliArgs.accumulatorContractAddress)
 
 
-	const customConfig: SeederConfigUserInput = {}
+	if (!cliArgs.accumulatorContractAddress) throw new Error("--accumulatorContractAddress is required")
+	const customConfig: SeederConfigUserInput = {
+		accumulatorContractConfig: { accumulatorContractAddress: cliArgs.accumulatorContractAddress },
+	}
 	if (cliArgs.nodeDbPath) {
 		customConfig.nodeDbPath = cliArgs.nodeDbPath
-	}
-	if (cliArgs.accumulatorContractAddress) {
-		customConfig.accumulatorContractConfig = { ...customConfig.accumulatorContractConfig, accumulatorContractAddress: cliArgs.accumulatorContractAddress }
 	}
 	if (cliArgs.specificAccountsOnly) {
 		customConfig.accountRegistryServiceConfig = { ...customConfig.accountRegistryServiceConfig, specificAccountsOnly: cliArgs.specificAccountsOnly }
@@ -60,7 +60,7 @@ export async function runSeeder() {
 
 // --- CLI ARGUMENT PARSING ---
 // Supported args:
-// --accumulatorContractAddress (string)
+// --accumulatorContractAddress (required string)
 // --specificAccountsOnly (JSON array of ethereum addresses)
 // --remotePin (boolean)
 // --ethereumHttpRpcUrl (string)

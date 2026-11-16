@@ -35,7 +35,7 @@ function fixture(t: TestContext, lazyLoadEvents = true) {
 	const storage = new InMemoryAdapter()
 	// Model a persistent cache across stops so restart tests do not replay historical data.
 	t.mock.method(storage, "stop", () => {})
-	const contract = new AccumulatorContract(defaultLightClientAccumulatorContractConfig)
+	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
 	mockChain(t, contract, storage)
 	const logs: NormalizedLeafAppendedEvent[] = []
 	const chains = new Map<string, { mmr: MerkleMountainRange; lastBlock: number }>()

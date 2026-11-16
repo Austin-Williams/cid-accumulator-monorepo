@@ -38,7 +38,7 @@ test("LeafAppended decoding preserves ABI payloads and merge hashes through the 
 		for (const cid of event.mergeLeftHashes) {
 			assert.equal(cid.version, 1)
 			assert.equal(cid.code, 0x71)
-			assert.equal(cid.multihash.code, 0x12)
+			assert.equal(cid.multihash.code, 0x1b)
 		}
 	}
 })

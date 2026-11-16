@@ -48,7 +48,7 @@ export class RemotePinningService {
 	 * @param cid - The CID that was pinned
 	 * @returns The storage key
 	 */
-	private getPinKey(cid: CID<unknown, 113, 18, 1>): string {
+	private getPinKey(cid: CID<unknown, 113, 27, 1>): string {
 		return `ipfs:remote-pinned:service:${this.serviceName}:cid:${cid.toString()}`
 	}
 
@@ -57,7 +57,7 @@ export class RemotePinningService {
 	 * @param cid - The CID to check
 	 * @returns True if the CID is marked as pinned in local storage
 	 */
-	private async isAlreadyPinnedInStorage(cid: CID<unknown, 113, 18, 1>): Promise<boolean> {
+	private async isAlreadyPinnedInStorage(cid: CID<unknown, 113, 27, 1>): Promise<boolean> {
 		const pinKey = this.getPinKey(cid)
 		const isPinned = (await this.storage.get(pinKey)) === "true"
 		return isPinned
@@ -68,7 +68,7 @@ export class RemotePinningService {
 	 * @param cid - The CID to check
 	 * @returns True if the CID is pinned on the remote service
 	 */
-	private async checkRemotePinStatus(cid: CID<unknown, 113, 18, 1>): Promise<"none" | "pinned" | "pinning" | "queued"> {
+	private async checkRemotePinStatus(cid: CID<unknown, 113, 27, 1>): Promise<"none" | "pinned" | "pinning" | "queued"> {
 		const url = buildIpfsUrl(this.baseUrl, "pin/remote/ls", {
 			cid: cid.toString(),
 			service: this.serviceName,
@@ -135,7 +135,7 @@ export class RemotePinningService {
 	 * @returns Whether the request was accepted, or a non-retriable failure result
 	 * @throws The last error when transient failures exhaust the retry budget
 	 */
-	private async sendRemotePinRequest(cid: CID<unknown, 113, 18, 1>, name: string): Promise<RemotePinningResult> {
+	private async sendRemotePinRequest(cid: CID<unknown, 113, 27, 1>, name: string): Promise<RemotePinningResult> {
 		const url = buildIpfsUrl(this.baseUrl, "pin/remote/add", {
 			arg: cid.toString(),
 			service: this.serviceName,
@@ -180,7 +180,7 @@ export class RemotePinningService {
 	 * @returns A result object indicating success or failure
 	 * @throws When transient failures exhaust the retry budget, or storage fails
 	 */
-	pin(cid: CID<unknown, 113, 18, 1>, name: string): Promise<RemotePinningResult> {
+	pin(cid: CID<unknown, 113, 27, 1>, name: string): Promise<RemotePinningResult> {
 		const key = cid.toString()
 		const pending = this.pendingPins.get(key)
 		if (pending) return pending
@@ -189,7 +189,7 @@ export class RemotePinningService {
 		return pin
 	}
 
-	private async pinOnce(cid: CID<unknown, 113, 18, 1>, name: string): Promise<RemotePinningResult> {
+	private async pinOnce(cid: CID<unknown, 113, 27, 1>, name: string): Promise<RemotePinningResult> {
 		// Check if we've already marked this as pinned in storage
 		if (await this.isAlreadyPinnedInStorage(cid)) {
 			return { success: true, skipService: false }

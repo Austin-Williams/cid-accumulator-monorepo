@@ -50,7 +50,7 @@ function fixture(t: TestContext) {
 	// Preserve cache across stop/start just as a persistent storage adapter does.
 	t.mock.method(storage, "stop", () => {})
 	const account = new EthereumAddress("0x" + "ab".repeat(20))
-	const contract = new AccumulatorContract(defaultSeederAccumulatorContractConfig)
+	const contract = new AccumulatorContract({ ...defaultSeederAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
 	mockChain(t, contract, storage)
 	const chain = new MerkleMountainRange()
 	const logs: NormalizedLeafAppendedEvent[] = []

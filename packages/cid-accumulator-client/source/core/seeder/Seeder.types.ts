@@ -1,4 +1,4 @@
-import type { AccumulatorContractConfig } from "../../ethereum/AccumulatorContract.types.js"
+import type { AccumulatorContractConfig, AccumulatorContractConfigUserInput } from "../../ethereum/AccumulatorContract.types.js"
 import type { AccountRegistryServiceConfig } from "../../services/AccountRegistryService.types.js"
 import type { EventCacheServiceConfig } from "../../services/EventCacheService.types.js"
 import type { IpfsResolverConfig } from "../../ipfs/IpfsResolver.types.js"
@@ -11,7 +11,9 @@ import type { DataClientManager } from "../../services/DataClientManager.js"
 import type { PinningService } from "../../services/PinningService.js"
 import type { DeepPartial } from "../../types/common.js"
 
-export interface SeederConfigUserInput extends DeepPartial<SeederConfig> {}
+export interface SeederConfigUserInput extends DeepPartial<SeederConfig> {
+	accumulatorContractConfig: AccumulatorContractConfigUserInput
+}
 
 export interface SeederConfig extends StorageConfig {
 	accumulatorContractConfig: Required<AccumulatorContractConfig>

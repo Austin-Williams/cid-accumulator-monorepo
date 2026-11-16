@@ -43,14 +43,16 @@ In practice, this means that to get all the data payloads from IPFS, you need on
 
 ## How to use the smart contract
 
+The mainnet contract address is `NOT_YET_DEPLOYED`. Replace this placeholder in examples with a deployed contract address and configure the corresponding Ethereum RPC URL. For local development, deploy the contract to your local chain and use `http://127.0.0.1:8545`.
+
 The canonical Solidity sources live in the root [`contracts/`](contracts/) directory: the [singleton contract](contracts/singleton/CIDAccumulatorSingleton.sol), its [libraries](contracts/libraries/), and the public [ICIDAccumulatorSingleton interface](contracts/interfaces/ICIDAccumulatorSingleton.sol). Make contract changes here and point Solidity build or test tooling at this directory.
 
 ```solidity
 interface ICIDAccumulator { function appendLeaf(bytes calldata payload) external; }
 
 contract YourContract {
-  // Address of the CIDAccumulatorSingleton contract on Ethereum mainnet
-  ICIDAccumulator private constant accumulator = ICIDAccumulator(0x8fA8C72c306f736701B3FC27976fAd25413fF5bF);
+  // Replace NOT_YET_DEPLOYED with the address of your deployed CIDAccumulatorSingleton
+  ICIDAccumulator private constant accumulator = ICIDAccumulator(NOT_YET_DEPLOYED);
 
   function yourFunction() external {
     // Create any bytes payload you want (e.g., deposit commitment, pool initialization data, etc.)
@@ -64,7 +66,7 @@ contract YourContract {
 }
 ```
 
-The [CIDAccumulatorSingleton contract](https://etherscan.io/address/0x8fA8C72c306f736701B3FC27976fAd25413fF5bF#code) maintains a unique CID accumulator for every Ethereum address. Each accumulator is namespaced by `msg.sender` and is append-only. There is no need to "register", "initialize", or otherwise set up an accumulator. It is already there for you, ready for you to start throwing data at it via the `appendLeaf(bytes calldata payload)` function.
+The [CIDAccumulatorSingleton contract](contracts/singleton/CIDAccumulatorSingleton.sol) maintains a unique CID accumulator for every Ethereum address. Each accumulator is namespaced by `msg.sender` and is append-only. There is no need to "register", "initialize", or otherwise set up an accumulator. Once the singleton is deployed, you can append data via `appendLeaf(bytes calldata payload)` without per-account setup.
 
 Each call to `appendLeaf` causes the accumulator contract to emit an event:
 
@@ -83,7 +85,7 @@ event LeafAppended(
 );
 ```
 
-Most data inserts require between 14k and 23.3k gas for execution. See below for more about gas costs.
+For 32-byte payloads and initialized storage, inserts with zero, one, or two merges use approximately 15.3k–20.0k execution gas. See below for measurement settings and total transaction costs.
 
 ## How the off-chain component works
 
@@ -128,7 +130,11 @@ npm install cid-accumulator-client
 import { createLightClient } from 'cid-accumulator-client'
 
 // Create a light client for a specific account
-const client = await createLightClient('0xYourEthereumAddress')
+const client = await createLightClient('0xYourEthereumAddress', {
+  accumulatorContractConfig: {
+    accumulatorContractAddress: 'NOT_YET_DEPLOYED', // Replace with your deployed contract address
+  },
+})
 
 // Start the client and let it sync
 await client.start()
@@ -187,7 +193,7 @@ On `client.start()`, the light client will:
 Light clients can use a free-tier public Ethereum RPC provider (e.g., Infura, Alchemy, etc.) and a local or hosted IPFS HTTP gateway. With that in mind, the client has been optimized to minimize the number and "weight" of RPC calls made to the Ethereum RPCs and IPFS gateways. It also has built-in rate limiting with automatic backoff and retries to prevent getting blocked by the public RPCs and gateways.
 
 ### Configuration
-The light client is highly configurable via an optional `config` parameter. The example below shows the default configuration. Any or all of the options can be changed to suit your needs.
+The light client requires `config.accumulatorContractConfig.accumulatorContractAddress`. All other settings are optional. The example below shows their defaults; customize them to suit your deployment.
 
 The default IPFS endpoint requires Kubo running locally. To use a hosted HTTP gateway, set `ipfsResolverConfig.gatewayUrl` to an endpoint that serves raw blocks and CAR responses.
 
@@ -198,21 +204,21 @@ const config = {
   nodeDbPath: "./db/cid-accumulator-light-client.json",
   browserDbName: "cid-accumulator",
   accumulatorContractConfig: {
-    accumulatorContractAddress: "0x8fA8C72c306f736701B3FC27976fAd25413fF5bF"
-    ethereumHttpRpcUrl: "https://ethereum-rpc.publicnode.com"
+    accumulatorContractAddress: "NOT_YET_DEPLOYED",
+    ethereumHttpRpcUrl: "https://ethereum-rpc.publicnode.com",
     rateLimiterOptions: {
       intervalMs: 2000,
       maxRetries: 3,
       baseDelay: 1000,
       capDelay: 10000,
-    }
-  }
+    },
+  },
   eventCacheServiceConfig: {
     lazyLoadEvents: true,
     pollingIntervalMs: 12000,
-  }
+  },
   ipfsResolverConfig: {
-    gatewayUrl: "http://127.0.0.1:8080"
+    gatewayUrl: "http://127.0.0.1:8080",
     rateLimiterOptions: {
       intervalMs: 200,
       maxRetries: 3,
@@ -230,7 +236,7 @@ await client.start()
 Both client factories accept separate storage settings for each environment:
 
 - `nodeDbPath` selects the database file in Node.js.
-- `browserDbName` selects the IndexedDB database in browsers. Its default remains `cid-accumulator`, so existing browser caches continue to work. Clients on the same browser origin share storage when they use the same name; choose distinct names for different chains or accumulator contracts.
+- `browserDbName` selects the IndexedDB database in browsers. Its default is `cid-accumulator`. Clients on the same browser origin share storage when they use the same name; choose distinct names for different chains or accumulator contracts.
 
 ## The Seeder
 
@@ -254,13 +260,13 @@ There are two ways to run a seeder.
 
 ### Run a seeder from command line
 
-You can clone this repo and run the seeder from the command line with the default options.
+You can clone this repo and run the seeder from the command line by specifying your deployed contract address:
 
 ```bash
 git clone https://github.com/Austin-Williams/cid-accumulator-singleton.git
 cd cid-accumulator-singleton
 npm ci
-npm run seeder --workspace cid-accumulator-client
+npm run seeder --workspace cid-accumulator-client -- --accumulatorContractAddress=NOT_YET_DEPLOYED
 ```
 
 Run `npm ci` from the repository root to install all workspace dependencies using the committed `package-lock.json`.
@@ -268,14 +274,14 @@ Run `npm ci` from the repository root to install all workspace dependencies usin
 You can also run it with custom options. E.g.:
 
 ```bash
-npm run seeder --workspace cid-accumulator-client -- --remotePin=true --ethereumHttpRpcUrl=https://mainnet.infura.io/v3/<YourInfuraApiKey>
+npm run seeder --workspace cid-accumulator-client -- --accumulatorContractAddress=NOT_YET_DEPLOYED --remotePin=true --ethereumHttpRpcUrl=https://mainnet.infura.io/v3/<YourInfuraApiKey>
 ```
 
-**Available options (defaults shown):**
+**Available options (contract address required; other defaults shown):**
 
 ```bash
-The Ethereum address of the accumulator contract
---accumulatorContractAddress=0x8fA8C72c306f736701B3FC27976fAd25413fF5bF
+The Ethereum address of your deployed accumulator contract (required)
+--accumulatorContractAddress=NOT_YET_DEPLOYED
 
 JSON array of Ethereum addresses to track (leave empty to pin for all accounts)
 --specificAccountsOnly='[]'
@@ -307,8 +313,12 @@ Another option is to run a seeder programmatically:
 ```typescript
 import { createSeeder } from 'cid-accumulator-client';
 
-// Create a seeder with your Ethereum wallet
-const seeder = await createSeeder()
+// Create a seeder for your deployed accumulator contract
+const seeder = await createSeeder({
+  accumulatorContractConfig: {
+    accumulatorContractAddress: 'NOT_YET_DEPLOYED', // Replace with your deployed contract address
+  },
+})
 
 // Start the seeder. It will sync and pin all accumulator data to IPFS
 await seeder.start()
@@ -317,14 +327,16 @@ await seeder.start()
 await seeder.stop()
 ```
 
-You can also pass in a custom config to the seeder. The example below shows the default configuration. Any or all of the options can be changed to suit your needs.
+The seeder requires `config.accumulatorContractConfig.accumulatorContractAddress`. The example below shows the defaults for all other settings, which can be customized to suit your deployment.
 
 ```typescript
+import { createSeeder, type SeederConfigUserInput } from 'cid-accumulator-client'
+
 const config: SeederConfigUserInput = {
   nodeDbPath: "./db/cid-accumulator-seeder.json",
   browserDbName: "cid-accumulator",
   accumulatorContractConfig: {
-    accumulatorContractAddress: "0x8fA8C72c306f736701B3FC27976fAd25413fF5bF",
+    accumulatorContractAddress: "NOT_YET_DEPLOYED",
     ethereumHttpRpcUrl: "http://127.0.0.1:8545",
     rateLimiterOptions: {
       intervalMs: 10,
@@ -374,53 +386,30 @@ await seeder.stop()
 
 ## Gas Costs
 
-The execution gas cost of `appendLeaf` depends on how many **merge steps** are triggered by that particular insert. Most inserts (75% of them) require zero or one peak update and are cheap (cheaper than a fresh SSTORE). Occasionally, an insert will trigger a chain of merges — and this is what increases gas (for that insert only). Gas estimations below assume a 32-byte payload, but the contract can handle arbitrary length bytes.
+The cost of `appendLeaf` depends on the payload size, the number of merges, and whether the storage slots being written already contain data. The measurements below use Solidity 0.8.38, the optimizer enabled with 200 runs, `viaIR: false`, and the Osaka compiler target and EVM rules. Payloads contain 32 nonzero bytes. The merge-depth rows use an initialized accumulator with nonzero peak storage slots; first-time writes to zero slots cost more.
 
-| Merge Depth | Description                      | **Approx Gas** |
-| ----------- | -------------------------------- | -------------- |
-| 0           | No merges (new peak at height 0) | ≈ 14.5k gas    |
-| 1           | Merge with 1 peak  → height 1    | ≈ 19.2k gas    |
-| 2           | Merge with 2 peaks → height 2    | ≈ 23.3k gas    |
-| 3           | Merge with 3 peaks → height 3    | ≈ 27.4k gas    |
-| 4           | Merge with 4 peaks → height 4    | ≈ 31.4k gas    |
-| 5           | Merge with 5 peaks → height 5    | ≈ 35.5k gas    |
-| 6           | Merge with 6 peaks → height 6    | ≈ 39.6k gas    |
-| 7           | Merge with 7 peaks → height 7    | ≈ 43.7k gas    |
-| 8           | Merge with 8 peaks → height 8    | ≈ 47.8k gas    |
-| 9           | Merge with 9 peaks → height 9    | ≈ 51.9k gas    |
-| 10          | Merge with 10 peaks → height 10  | ≈ 56.0k gas    |
+Execution gas excludes the transaction's intrinsic gas. Total transaction gas includes the base transaction cost, calldata, and any applicable calldata gas floor.
 
+| Append scenario | Execution gas | Total transaction gas |
+| --- | ---: | ---: |
+| Single leaf, 0 merges | 15,330 | 37,186 |
+| Single leaf, 1 merge | 16,630 | 38,486 |
+| Single leaf, 2 merges | 19,987 | 41,843 |
+| Single leaf, 3 merges | 23,348 | 45,204 |
+| Single leaf, 4 merges | 26,709 | 48,565 |
+| Single leaf, 5 merges | 30,067 | 51,923 |
+| Single leaf, 6 merges | 33,428 | 55,284 |
+| Single leaf, 7 merges | 36,790 | 58,646 |
+| Single leaf, 8 merges | 40,151 | 62,007 |
+| Single leaf, 9 merges | 43,509 | 65,365 |
+| Single leaf, 10 merges | 46,871 | 68,727 |
+| First leaf for a new account | 50,621 | 72,477 |
+| Batch of 8 leaves, initialized accumulator | 73,972 | 101,724 |
+| Batch of 32 leaves, initialized accumulator | 237,975 | 284,951 |
 
-> ℹ️ Most inserts (87.5%) fall in the **14.5K–23.3K gas** range. Deeper merges are **exponentially rare**:
->
-> - Merge depth 3 happens once every 8 inserts
-> - Merge depth 6 happens once every 64 inserts
-> - Merge depth 9 happens once every 512 inserts
+Across sequential appends, 75% require zero or one merge, and 87.5% require at most two. Exact merge depth `d` occurs once every `2^(d + 1)` appends; deeper merges become exponentially less frequent. Gas also depends on storage initialization and payload size, so these figures are representative measurements rather than fixed prices for all inserts.
 
-For example, if you insert `2^20` entries (just over 1 million), here’s how often each merge depth occurs:
-
-| Merge Depth | Inserts (%) | **Approx Gas** |
-| ----------- | ----------- | -------------- |
-| 0           | 50.0%       | ≈ 14 .5 k      |
-| 1           | 25.0%       | ≈ 19 .2 k      |
-| 2           | 12.5%       | ≈ 23 .3 k      |
-| 3           | 6.25%       | ≈ 27 .4 k      |
-| 4           | 3.125%      | ≈ 31 .4 k      |
-| 5           | 1.5625%     | ≈ 35 .5 k      |
-| 6           | 0.78125%    | ≈ 39 .6 k      |
-| 7           | 0.390625%   | ≈ 43 .7 k      |
-| 8           | 0.1953125%  | ≈ 47 .8 k      |
-| 9           | 0.09765625% | ≈ 51 .9 k      |
-| 10          | 0.048828125%| ≈ 56 .0 k      |
-
-
-> ✅ Even after a million inserts, **87.5%** of them will require **two or fewer merges**, keeping gas costs low and consistent.
-
-So the gas cost is determined only by that insert’s merge activity — **not** by the total size of the data set.
-
-The mean steady-state cost per insert is ≈ 18.7k gas.
-
-Note: The very first time an address appends data to the accumulator, the execution cost is about 53k gas because two empty storage slots need to be unzeroed when initializing the account's accumulator.
+Larger payloads can hit the calldata gas floor. For example, a 4 KiB nonzero payload with one merge uses 51,652 execution gas but is charged 185,700 total transaction gas under these settings.
 
 ## How the CID is computed by the smart contract (for nerds)
 
@@ -428,13 +417,13 @@ In IPFS, data can be structured as a [DAG of IPLD nodes](https://ipld.io/) seria
 
 Raw data chunks (like deposit commitments) can be stored as leaves, while intermediate nodes encode references to child CIDs, forming a Merkle tree. The root CID can then be recursively resolved through these links, enabling full and verifiable reconstruction of the original data set. A user needs only the root CID to access the entire data set.
 
-So the high-level idea is to store the leaf data (e.g., deposit commitments) as leaves in a Merkle tree, but instead of having the nodes of the Merkle tree be hashes of the child nodes, they are multihashes of the _(DAG-CBOR-encoded) IPLD links_ to the child nodes. This simply means that before hashing the left and right child inputs when computing a parent node, you first serialize the child inputs as a DAG-CBOR-encoded object (e.g., `{ left: <leftHash>, right: <rightHash> }`, where `<leftHash>` and `<rightHash>` are the hashes of the DAG-CBOR-encoded left and right child nodes, respectively). The DAG-CBOR encoding is handled by the `DagCborCIDEncoder` library, and the rest is handled by the `CIDAccumulator.mergeNodes` function.
+So the high-level idea is to store the leaf data (e.g., deposit commitments) as leaves in a Merkle tree, but instead of having the nodes of the Merkle tree be hashes of the child nodes, they are multihashes of the _(DAG-CBOR-encoded) IPLD links_ to the child nodes. This simply means that before hashing the left and right child inputs when computing a parent node, you first serialize the child inputs as a DAG-CBOR-encoded object (e.g., `{ L: <leftCID>, R: <rightCID> }`, where each child CID identifies its DAG-CBOR-encoded block). The `DagCborDigestLib` library handles DAG-CBOR encoding and Keccak-256 hashing, and `MmrLib.mergeNodes` handles merges. Each CID uses version `0x01`, DAG-CBOR codec `0x71`, and the Keccak-256 multihash prefix `0x1b20` (hash code `0x1b`, 32-byte digest). Thus the full CID is `01711b20` followed by the digest. Internal nodes embed both child CIDs with this same prefix before hashing the encoded map.
 
 IPFS can work with any DAG structure, and thus any shape of Merkle tree. For this project, gas efficiency is critical. When appending a new leaf to a Merkle tree in the EVM setting, each intermediate node update requires an SLOAD and at least one SSTORE. The number of SSTOREs varies depending on the chosen Merkle tree structure. So the Merkle tree structure we use here is a [Merkle Mountain Range](https://docs.grin.mw/wiki/chain-state/merkle-mountain-range/) (MMR) structure, which requires the minimal number of SLOADs and SSTOREs per leaf insertion.
 
 To illustrate the difference in gas cost between using an MMR vs a typical balanced, binary Merkle tree, consider the following. Each new leaf insertion into a balanced binary Merkle tree requires `log₂(n)` SLOADs and `log₂(n)` SSTOREs, where n is the number of leaves. So for example, the 100kth leaf insertion would require 17 SLOADs (2100 gas each) and 17 SSTOREs (5000 gas each) operations, costing a total of 120,700 gas. (We are considering only the cost of SLOADs and SSTOREs here, not any other memory/compute overhead, which is approximately equal between the two examples).
 
-By contrast, for an MMR, each new leaf insertion requires _exactly_ two SSTOREs, and _at most_ `log₂(n) + 1` SLOADs (one to load the metadata, and then one for each merge that occurs). Statistically, over 87% of inserts require three or fewer SLOADs (one to load the metadata, and two or fewer to load the peaks that are merged). So the gas cost for inserting a new leaf (when there are around 100k leaves, so we're comparing apples to apples) is _at most_ 47,800 gas, and is more typically 14.5k - 19.2k gas. (This assumes you're SSTORing to non-zero slots, which is the most common case).
+By contrast, for an MMR, each new leaf insertion requires _exactly_ two SSTOREs, and _at most_ `log₂(n) + 1` SLOADs (one to load the metadata, and then one for each merge that occurs). Statistically, over 87% of inserts require three or fewer SLOADs (one to load the metadata, and two or fewer to load the peaks that are merged). The measured gas cost depends on the merge depth, storage initialization, and payload size; see the gas table above.
 
 To view the root CID for an MMR, you have to "bag the peaks" (merge them), which requires at most `log₂(n) + 1` SLOADs (one for the metadata and then one for each peak in the MMR). However, this only ever needs to be done off-chain, so the gas cost is not a concern there.
 
@@ -449,5 +438,5 @@ If you are passionate about open source, decentralized systems, and want to take
 ## Contract address
 
 Ethereum mainnet:
-[0x8fA8C72c306f736701B3FC27976fAd25413fF5bF](https://etherscan.io/address/0x8fA8C72c306f736701B3FC27976fAd25413fF5bF#code)
+`NOT_YET_DEPLOYED`
 

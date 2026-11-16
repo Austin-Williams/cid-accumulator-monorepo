@@ -14,18 +14,26 @@ import type { Storage } from "../../storage/interface.js"
 /**
  * Creates a light client for a specific account
  * @param account Ethereum address of the account to create a light client for
- * @param options Configuration options for the light client
+ * @param config Configuration options for the light client
  * @returns A LightClient instance with start() and stop() methods
  */
 export async function createLightClient(
 	account: string | EthereumAddress,
-	config?: LightClientConfigUserInput
+	config: LightClientConfigUserInput
 ): Promise<LightClient> {
 	// Normalize account address
 	const accountAddress = account instanceof EthereumAddress ? account : new EthereumAddress(account)
 
 	// Merge user config with default config (user config takes precedence)
-	const mergedConfig = mergeConfigWithDefaults(config, defaultLightClientConfig)
+	const accumulatorContractAddress = config?.accumulatorContractConfig?.accumulatorContractAddress
+	if (!accumulatorContractAddress) throw new Error("accumulatorContractConfig.accumulatorContractAddress is required")
+	const mergedConfig = mergeConfigWithDefaults(config, {
+		...defaultLightClientConfig,
+		accumulatorContractConfig: {
+			...defaultLightClientConfig.accumulatorContractConfig,
+			accumulatorContractAddress,
+		},
+	})
 
 	// Create dependencies
 	const storage: Storage = new UniversalStorageAdapter(mergedConfig.nodeDbPath, mergedConfig.browserDbName)

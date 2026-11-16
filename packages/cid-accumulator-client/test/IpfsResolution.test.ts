@@ -218,7 +218,7 @@ describe("complete IPFS tree resolution", { concurrency: false, timeout: 5000 },
 		const f = await fixture(t)
 		await f.cache([f.root])
 		const account = new EthereumAddress("0x" + "11".repeat(20))
-		const contract = new AccumulatorContract(defaultLightClientAccumulatorContractConfig)
+		const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
 		mockChain(t, contract, f.storage)
 		t.mock.method(contract, "getSingletonBirthdayBlockNum", async () => 1)
 		t.mock.method(contract, "getState", async () => ({

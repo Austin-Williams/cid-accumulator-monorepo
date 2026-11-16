@@ -21,7 +21,7 @@ library MmrLib {
 	/// @param left The hash of the left node.
 	/// @param right The hash of the right node.
 	/// @return mergedHash The hash of the merged node.
-	function mergeNodes(bytes32 left, bytes32 right) internal view returns (bytes32 mergedHash) {
+	function mergeNodes(bytes32 left, bytes32 right) internal pure returns (bytes32 mergedHash) {
 		mergedHash = DagCborDigestLib.encodeLinkNode(left, right);
 	}
 

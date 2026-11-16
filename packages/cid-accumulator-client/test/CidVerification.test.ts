@@ -6,7 +6,18 @@ import { EthereumAddress } from "../source/ethereum/EthereumAddress.js"
 import { IpfsPinner } from "../source/ipfs/IpfsPinner.js"
 import { IpfsResolver } from "../source/ipfs/IpfsResolver.js"
 import { InMemoryAdapter } from "../source/storage/adapters/InMemoryAdapter.js"
-import { encodeBlock, uint8ArrayToHexString } from "../source/utils/codec.js"
+import { encodeBlock, encodeLinkNode, uint8ArrayToHexString } from "../source/utils/codec.js"
+
+test("DAG-CBOR leaf and link CIDs match fixed Keccak-256 vectors", async () => {
+	const left = await encodeBlock(Uint8Array.of(0xde, 0xad, 0xbe, 0xef))
+	const right = await encodeBlock(Uint8Array.of(1))
+	assert.equal(uint8ArrayToHexString(left.dagCborEncodedData), "44deadbeef")
+	assert.equal(left.cid.toString(), "bafyrwif32u7d5blknsc7f6vs5pot4gegdcsgw47tw2mfb4oap7nbnjkdsq")
+	assert.equal(right.cid.toString(), "bafyrwihmla4kpfp7b5kcapznmydaipimdj3ydm53w4a242q4o5lts4dyku")
+	const link = await encodeLinkNode(left.cid, right.cid)
+	assert.equal(link.toString(), "bafyrwigkuv7we2ym3kbhjkexqnelrow5mlox7t7j7eoiq6lt5bdyvv3c4m")
+	assert.equal((await encodeBlock({ L: left.cid, R: right.cid })).cid.toString(), link.toString())
+})
 
 async function fixture(t: TestContext, remotePin = false) {
 	const block = await encodeBlock(Uint8Array.of(1))
@@ -121,6 +132,7 @@ describe("CID verification before reading or pinning blocks", { concurrency: fal
 		const url = new URL(input instanceof Request ? input.url : input.toString())
 		assert.equal(url.pathname, "/proxy/api/v0/block/put")
 		assert.deepEqual(url.searchParams.getAll("pin"), ["true"])
+		assert.deepEqual(url.searchParams.getAll("mhtype"), ["keccak-256"])
 		assert.equal(init?.method, "POST")
 		assert.ok(init.body instanceof FormData)
 		const data = init.body.get("data")

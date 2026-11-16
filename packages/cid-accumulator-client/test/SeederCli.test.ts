@@ -50,12 +50,19 @@ try {
 	delete env.NODE_PATH
 	const { stdout } = await execFileAsync(
 		process.execPath,
-		["--import", "tsx", "--experimental-test-module-mocks", "--input-type=module", "--eval", bootstrap, "--", ...args],
+		["--import", "tsx", "--experimental-test-module-mocks", "--input-type=module", "--eval", bootstrap, "--", "--accumulatorContractAddress=0x" + "ab".repeat(20), ...args],
 		{ cwd: packageDirectory, env, timeout: 10000 }
 	)
 	const offset = stdout.indexOf(marker)
 	assert.notEqual(offset, -1, "The runner must pass its configuration to the seeder factory")
-	return mergeConfigWithDefaults(JSON.parse(stdout.slice(offset + marker.length)), defaultSeederConfig)
+	const config = JSON.parse(stdout.slice(offset + marker.length))
+	return mergeConfigWithDefaults(config, {
+		...defaultSeederConfig,
+		accumulatorContractConfig: {
+			...defaultSeederConfig.accumulatorContractConfig,
+			accumulatorContractAddress: config.accumulatorContractConfig.accumulatorContractAddress,
+		},
+	})
 }
 
 describe("seeder CLI configuration", () => {

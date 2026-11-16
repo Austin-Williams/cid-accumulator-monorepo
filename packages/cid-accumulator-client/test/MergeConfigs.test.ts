@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
-import { defaultAccumulatorContractAddress, defaultLightClientConfig } from "../source/config/defaultConfig.js"
+import { defaultLightClientConfig } from "../source/config/defaultConfig.js"
 import { createLightClient } from "../source/core/lightClient/createLightClient.js"
 import { createSeeder } from "../source/core/seeder/createSeeder.js"
 import { EthereumAddress } from "../source/ethereum/EthereumAddress.js"
@@ -9,9 +9,16 @@ import { mergeConfigWithDefaults } from "../source/utils/mergeConfigs.js"
 describe("configuration merging", () => {
 	test("preserves an address instance while merging the surrounding configuration", () => {
 		const address = new EthereumAddress("0x" + "AB".repeat(20))
+		const defaults = {
+			...defaultLightClientConfig,
+			accumulatorContractConfig: {
+				...defaultLightClientConfig.accumulatorContractConfig,
+				accumulatorContractAddress: new EthereumAddress("0x" + "11".repeat(20)),
+			},
+		}
 		const merged = mergeConfigWithDefaults(
 			{ accumulatorContractConfig: { accumulatorContractAddress: address, rateLimiterOptions: { maxRetries: 2 } } },
-			defaultLightClientConfig
+			defaults
 		)
 		assert.equal(merged.accumulatorContractConfig.accumulatorContractAddress, address)
 		assert.equal(merged.accumulatorContractConfig.accumulatorContractAddress.toString(), "0x" + "ab".repeat(20))
@@ -24,8 +31,8 @@ describe("configuration merging", () => {
 			defaultLightClientConfig.accumulatorContractConfig.ethereumHttpRpcUrl
 		)
 		assert.equal(
-			defaultLightClientConfig.accumulatorContractConfig.accumulatorContractAddress,
-			defaultAccumulatorContractAddress
+			defaults.accumulatorContractConfig.accumulatorContractAddress.toString(),
+			"0x" + "11".repeat(20)
 		)
 	})
 
@@ -75,7 +82,7 @@ describe("configuration merging", () => {
 
 describe("factory address configuration", { concurrency: false, timeout: 5000 }, () => {
 	for (const factory of ["light client", "seeder"] as const) {
-		for (const addressFormat of ["instance", "string", "default"] as const) {
+		for (const addressFormat of ["instance", "string"] as const) {
 			test(`${factory} sends contract calls to the configured ${addressFormat} address`, async (t) => {
 				t.mock.method(console, "log", () => {})
 				const fetch = t.mock.method(globalThis, "fetch", async () =>
@@ -87,7 +94,7 @@ describe("factory address configuration", { concurrency: false, timeout: 5000 },
 				const config = {
 					accumulatorContractConfig: {
 						accumulatorContractAddress:
-							addressFormat === "instance" ? address : addressFormat === "string" ? "0x" + "AB".repeat(20) : undefined,
+							addressFormat === "instance" ? address : "0x" + "AB".repeat(20),
 						ethereumHttpRpcUrl,
 						rateLimiterOptions: { intervalMs: 0 },
 					},
@@ -107,7 +114,7 @@ describe("factory address configuration", { concurrency: false, timeout: 5000 },
 				assert.equal(request.method, "eth_call")
 				assert.equal(
 					request.params[0].to,
-					(addressFormat === "default" ? defaultAccumulatorContractAddress : address).toString()
+					address.toString()
 				)
 			})
 		}

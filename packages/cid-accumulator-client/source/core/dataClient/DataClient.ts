@@ -444,7 +444,7 @@ export class DataClient {
 	private async syncBackwardsFromLatest(
 		meta: AccumulatorMetadata,
 		peaks: PeakWithHeight[],
-		currentRootCID: CID<unknown, 113, 18, 1>
+		currentRootCID: CID<unknown, 113, 27, 1>
 	) {
 		if (meta.leafCount === 0) {
 			this.logger.log(`The contract has no payloads for this account.`)
@@ -591,7 +591,7 @@ export class DataClient {
 	}
 
 	/** Verify the actual cached payloads, including extra entries beyond the contract's leaf count. */
-	private async verifyCachedPayloads(leafCount: number, expectedRootCID: CID<unknown, 113, 18, 1>): Promise<void> {
+	private async verifyCachedPayloads(leafCount: number, expectedRootCID: CID<unknown, 113, 27, 1>): Promise<void> {
 		const errorPrefix = `[DataClient] Cache integrity check failed for ${this.account}`
 		await this.verifyCachedPayloadCount(leafCount)
 		// Read by index: storage iteration order and cached root metadata are not authoritative.
@@ -619,7 +619,7 @@ export class DataClient {
 	 * @returns {Promise<boolean>} - True if resolution was successful and payloads were processed
 	 */
 	private async tryResolveRootCidAndProcessPayloads(
-		rootCid: CID<unknown, 113, 18, 1>,
+		rootCid: CID<unknown, 113, 27, 1>,
 		currentLeafIndex: number // meta.leafCount - 1
 	): Promise<boolean> {
 		try {

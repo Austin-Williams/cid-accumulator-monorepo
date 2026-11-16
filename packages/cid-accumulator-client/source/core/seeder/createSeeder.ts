@@ -15,12 +15,20 @@ import type { Storage } from "../../storage/interface.js"
 
 /**
  * Creates a seeder for a all accounts (or optionall just for specific accounts)
- * @param options Configuration options for the seeder
+ * @param config Configuration options for the seeder
  * @returns A Seeder instance
  */
-export async function createSeeder(config?: SeederConfigUserInput): Promise<Seeder> {
+export async function createSeeder(config: SeederConfigUserInput): Promise<Seeder> {
 	// Merge user config with default config (user config takes precedence)
-	const mergedConfig = mergeConfigWithDefaults(config, defaultSeederConfig)
+	const accumulatorContractAddress = config?.accumulatorContractConfig?.accumulatorContractAddress
+	if (!accumulatorContractAddress) throw new Error("accumulatorContractConfig.accumulatorContractAddress is required")
+	const mergedConfig = mergeConfigWithDefaults(config, {
+		...defaultSeederConfig,
+		accumulatorContractConfig: {
+			...defaultSeederConfig.accumulatorContractConfig,
+			accumulatorContractAddress,
+		},
+	})
 
 	// Create dependencies
 	const storage: Storage = new UniversalStorageAdapter(

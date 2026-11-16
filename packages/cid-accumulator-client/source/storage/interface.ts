@@ -32,11 +32,11 @@ export interface StorageConfig {
  *   account: EthereumAddress,           // the account address
  *   leafIndex: number,                  // the leaf index
  *   payload: Uint8Array,                // the raw payload
- *   payloadCID?: CID<unknown, 113, 18, 1>, // CID<unknown, 113, 18, 1>.toString(), the CID of the payload itself, not the root CID,
+ *   payloadCID?: CID<unknown, 113, 27, 1>, // CID<unknown, 113, 27, 1>.toString(), the CID of the payload itself, not the root CID,
  *   blockNumber?: number,               // block number (base 10) where the leaf was inserted
  *   previousInsertBlockNumber?: number, // block number (base 10) where the previous leaf was inserted
- *   mergeLeftHashes?: CID<unknown, 113, 18, 1>[] // multihash bodies of nodes merged during insertion
- *   rootCidAfterInsert?: CID<unknown, 113, 18, 1>, // root CID after this leaf was inserted
+ *   mergeLeftHashes?: CID<unknown, 113, 27, 1>[] // multihash bodies of nodes merged during insertion
+ *   rootCidAfterInsert?: CID<unknown, 113, 27, 1>, // root CID after this leaf was inserted
  *   insertionTrail?: CIDDataPair[],     // trail of CIDDataPair objects from insertion (excluding payloadCID/payload)
  *   peaksWithHeightsAfterInsert?: PeakWithHeight[] // peaks with heights after insertion
  * }

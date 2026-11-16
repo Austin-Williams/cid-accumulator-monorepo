@@ -44,7 +44,7 @@ function fixture(t: TestContext, storage: Storage = new InMemoryAdapter()) {
 	t.mock.method(console, "warn", () => {})
 	t.mock.method(console, "error", () => {})
 	const account = new EthereumAddress("0x" + "11".repeat(20))
-	const contract = new AccumulatorContract(defaultLightClientAccumulatorContractConfig)
+	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
 	mockChain(t, contract, storage)
 	const eventCache = new EventCacheService(storage, contract, defaultLightClientEventCacheServiceConfig)
 	const resolver = new IpfsResolver(storage, defaultLightClientIpfsResolverConfig)

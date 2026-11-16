@@ -9,9 +9,9 @@ library CidLib {
 	/// @return The raw CIDv1 byte sequence: [version][codec][multihash].
 
 	function encodeCid(bytes32 hash) internal pure returns (bytes memory) {
-		// Multihash prefix: sha2-256 (0x12), length 32 (0x20)
+		// Multihash prefix: keccak-256 (0x1b), length 32 (0x20)
 		bytes memory multihash = abi.encodePacked(
-			hex"12", // SHA2-256 code.
+			hex"1b", // Keccak-256 code.
 			hex"20", // Length: 32 bytes.
 			hash // The digest.
 		);

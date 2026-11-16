@@ -1,5 +1,5 @@
 // shared/codec.ts
-import { sha256 } from "./hash.js"
+import { keccak256 } from "./hash.js"
 import * as dagCbor from "./dagCbor.js"
 import { CID } from "../ipfs/CID.js"
 import type { DagCborEncodedData } from "../ipfs/types.js"
@@ -8,13 +8,13 @@ import type { NormalizedLeafAppendedEvent } from "../ethereum/events.types.js"
 import type { AccumulatorMetadata, LeafRecord, PeakWithHeight } from "../mmr/types.js"
 
 interface Digest<Code, Size extends number = number> {
-	code: Code // hash function code (e.g., 0x12 for sha2-256)
+	code: Code // hash function code (e.g., 0x1b for keccak-256)
 	digest: Uint8Array // the actual hash digest bytes
 	size: Size // length of the digest in bytes
 	bytes: Uint8Array // the full multihash bytes (code + length + digest)
 }
 
-export function hashToMultiformatsDigest(code: 0x12, hash: Uint8Array): Digest<0x12, 32> {
+export function hashToMultiformatsDigest(code: 0x1b, hash: Uint8Array): Digest<0x1b, 32> {
 	// Multihash format: [code, length, ...digest]
 	const bytes = new Uint8Array([code, hash.length, ...hash])
 	return { code, digest: hash, size: 32, bytes }
@@ -22,24 +22,24 @@ export function hashToMultiformatsDigest(code: 0x12, hash: Uint8Array): Digest<0
 
 export async function encodeBlock(
 	value: unknown
-): Promise<{ cid: CID<unknown, 113, 18, 1>; dagCborEncodedData: DagCborEncodedData }> {
+): Promise<{ cid: CID<unknown, 113, 27, 1>; dagCborEncodedData: DagCborEncodedData }> {
 	const encoded: DagCborEncodedData = dagCbor.encode(value)
-	const hash = await sha256(encoded)
-	const multihash = hashToMultiformatsDigest(0x12, hash) // 0x12 is the code for sha2-256
+	const hash = keccak256(encoded)
+	const multihash = hashToMultiformatsDigest(0x1b, hash) // 0x1b is the code for keccak-256
 	const cid = CID.createV1(dagCbor.code, multihash)
 	return { cid, dagCborEncodedData: encoded }
 }
 
-// Encodes a link node as per DagCborCIDEncoder.encodeLinkNode in Solidity
+// Encodes a link node as per DagCborDigestLib.encodeLinkNode in Solidity
 export async function encodeLinkNode(
-	left: CID<unknown, 113, 18, 1>,
-	right: CID<unknown, 113, 18, 1>
-): Promise<CID<unknown, 113, 18, 1>> {
+	left: CID<unknown, 113, 27, 1>,
+	right: CID<unknown, 113, 27, 1>
+): Promise<CID<unknown, 113, 27, 1>> {
 	// Map(2) { "L": left, "R": right }
 	const node = { L: left, R: right }
 	const encoded = dagCbor.encode(node)
-	const hash = await sha256(encoded)
-	const multihash = hashToMultiformatsDigest(0x12, hash) // 0x12 is the code for sha2-256
+	const hash = keccak256(encoded)
+	const multihash = hashToMultiformatsDigest(0x1b, hash) // 0x1b is the code for keccak-256
 	return CID.createV1(dagCbor.code, multihash)
 }
 
@@ -56,8 +56,8 @@ export async function stringFromDBToCIDDataPair(s: string): Promise<CIDDataPair>
 }
 
 // Convert contract peak hex (digest) to the exact CID form used by mmr.peaks (wrap digest, do not hash)
-export function contractPeakHexToMmrCid(bytes: Uint8Array): CID<unknown, 113, 18, 1> {
-	const digest = hashToMultiformatsDigest(0x12, bytes) // 0x12 = sha2-256
+export function contractPeakHexToMmrCid(bytes: Uint8Array): CID<unknown, 113, 27, 1> {
+	const digest = hashToMultiformatsDigest(0x1b, bytes) // 0x1b = keccak-256
 	return CID.create(1, 0x71, digest) // 0x71 = dag-cbor
 }
 
@@ -91,7 +91,7 @@ export function NormalizedLeafAppendedEventToString(event: NormalizedLeafAppende
 }
 
 // Converts PeakWithHeight[] to a JSON string with cids as hex strings
-export function peakWithHeightArrayToStringForDB(peaks: { cid: CID<unknown, 113, 18, 1>; height: number }[]): string {
+export function peakWithHeightArrayToStringForDB(peaks: { cid: CID<unknown, 113, 27, 1>; height: number }[]): string {
 	return JSON.stringify(peaks.map((p) => ({ cid: p.cid.toString(), height: p.height })))
 }
 
@@ -164,11 +164,11 @@ export function getEthereumAddressAsLeftPaddedBytes32HexString(address: string):
 	return "0x" + padded
 }
 
-export function isIpldLink(obj: unknown): obj is CID<unknown, 113, 18, 1> {
+export function isIpldLink(obj: unknown): obj is CID<unknown, 113, 27, 1> {
 	return obj instanceof CID
 }
 
-export function isInternalNode(obj: unknown): obj is { L: CID<unknown, 113, 18, 1>; R: CID<unknown, 113, 18, 1> } {
+export function isInternalNode(obj: unknown): obj is { L: CID<unknown, 113, 27, 1>; R: CID<unknown, 113, 27, 1> } {
 	return (
 		typeof obj === "object" &&
 		obj !== null &&

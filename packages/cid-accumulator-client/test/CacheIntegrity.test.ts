@@ -52,7 +52,7 @@ async function fixture(t: TestContext, payloads: Uint8Array[]) {
 	}
 	const root = await mmr.rootCID()
 	const storage = new InMemoryAdapter()
-	const contract = new AccumulatorContract(defaultLightClientAccumulatorContractConfig)
+	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
 	mockChain(t, contract, storage)
 	const getState = t.mock.method(contract, "getState", async () => state)
 	t.mock.method(contract, "getSingletonBirthdayBlockNum", async () => 1)
