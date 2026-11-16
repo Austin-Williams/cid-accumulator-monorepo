@@ -3,13 +3,14 @@ import { getLeafRecordFromDB, putLeafRecordInDB } from "../../storage/utils.js"
 import { peakWithHeightArrayToStringForDB, uint8ArrayToHexString } from "../../utils/codec.js"
 import { isNodeJs } from "../../utils/envDetection.js"
 import { computePreviousRootCIDAndPeaksWithHeights, getRootCIDFromPeaks } from "../../mmr/utils.js"
+import { MerkleMountainRange } from "../../mmr/MerkleMountainRange.js"
 
 import type { AccumulatorContract } from "../../ethereum/AccumulatorContract.js"
 import type { CID } from "../../ipfs/CID.js"
 import type { DataClientDependencies } from "./DataClient.types.js"
 import type { EthereumAddress } from "../../ethereum/EthereumAddress.js"
 import type { EventCacheService } from "../../services/EventCacheService.js"
-import type { LeafRecord, PeakWithHeight } from "../../mmr/types.js"
+import type { AccumulatorMetadata, LeafRecord, PeakWithHeight } from "../../mmr/types.js"
 import type { Logger } from "../../types/common.js"
 import type { Storage } from "../../storage/interface.js"
 import type { IpfsResolver } from "../../ipfs/IpfsResolver.js"
@@ -55,6 +56,7 @@ export class DataClient {
 	/**
 	 * @notice Syncs this account's data from the latest leaf index down to the last contiguous leaf index in storage
 	 * @dev Concurrent callers share the current sync's result or error. Failed syncs can be retried.
+	 * Success requires the cached payload count and reconstructed root to match the fetched contract state.
 	 * @return A promise that resolves when syncing is complete
 	 */
 	public sync(): Promise<void> {
@@ -62,10 +64,16 @@ export class DataClient {
 			return this.syncPromise
 		}
 		this.syncing = true
+		this.completedInitialSync = false
 		this.syncPromise = Promise.resolve()
-			.then(() => this.syncBackwardsFromLatest())
-			.then(() => {
+			.then(async () => {
+				// Use one contract snapshot for both data retrieval and final verification.
+				const { meta, peaks } = await this.accumulatorContract.getState(this.account)
+				const currentRootCID = await getRootCIDFromPeaks(peaks.map((p) => p.cid))
+				await this.syncBackwardsFromLatest(meta, peaks, currentRootCID)
+				await this.verifyCachedPayloads(meta.leafCount, currentRootCID)
 				this.completedInitialSync = true
+				this.logger.log(`Synced and verified against contract state.`)
 			})
 			.finally(() => {
 				this.syncing = false
@@ -326,23 +334,23 @@ export class DataClient {
 	 * @dev This method attempts to resolve the current root CID via IPFS first. If that fails,
 	 * it walks backwards through historical root CIDs until it finds one that can be resolved.
 	 */
-	private async syncBackwardsFromLatest() {
-		// Get current state for this account from contract
-		const { meta, peaks } = await this.accumulatorContract.getState(this.account)
+	private async syncBackwardsFromLatest(
+		meta: AccumulatorMetadata,
+		peaks: PeakWithHeight[],
+		currentRootCID: CID<unknown, 113, 18, 1>
+	) {
 		if (meta.leafCount === 0) {
-			this.logger.log(`No payloads found. Nothing to sync.`)
+			this.logger.log(`The contract has no payloads for this account.`)
 			return
 		}
 		const highestContiguousLeafIndexWithData = await this.getHighestContiguousLeafIndexWithData()
 		if (highestContiguousLeafIndexWithData === meta.leafCount - 1) {
-			this.logger.log(`Synced.`)
+			this.logger.log(`All payloads are present in local storage. Verifying...`)
 			return
 		}
 		this.logger.log(
 			`Syncing backwards from leafIndex ${meta.leafCount - 1} to ${highestContiguousLeafIndexWithData + 1}`
 		)
-		// Compute the current root CID from the current peaks
-		const currentRootCID = await getRootCIDFromPeaks(peaks.map((p) => p.cid))
 		this.logger.log(`Attempting to resolve current root CID: ${currentRootCID.toString()} via IPFS`)
 		// Store the current root CID and peaks in the DB
 		await this.storage.put(
@@ -356,7 +364,7 @@ export class DataClient {
 
 		// Pass meta.leafCount - 1 since that's the highest leaf index (0-indexed)
 		if (await this.tryResolveRootCidAndProcessPayloads(currentRootCID, meta.leafCount - 1)) {
-			this.logger.log(`Successfully resolved current root CID ${currentRootCID.toString()} via IPFS. Fully synced.`)
+			this.logger.log(`Loaded payloads for current root CID ${currentRootCID.toString()} via IPFS.`)
 			return
 		}
 
@@ -385,7 +393,7 @@ export class DataClient {
 
 		// If we're at leafIndex 0, we're finished at this point
 		if (oldestLeafChecked.leafIndex === 0) {
-			this.logger.log(`Fully synced back to leafIndex 0 using accumulator contract events (no help from IPFS).`)
+			this.logger.log(`Loaded leafIndex 0 using accumulator contract events.`)
 			return
 		}
 
@@ -411,7 +419,7 @@ export class DataClient {
 			// Check IPFS for the previous root CID
 			this.logger.log(`Attempting to resolve previous root CID ${previousRootCID.toString()} via IPFS`)
 			if (await this.tryResolveRootCidAndProcessPayloads(previousRootCID, meta.leafCount - 1)) {
-				this.logger.log(`Successfully resolved previous root CID ${previousRootCID.toString()} via IPFS. Fully synced.`)
+				this.logger.log(`Loaded payloads for previous root CID ${previousRootCID.toString()} via IPFS.`)
 				break
 			} else {
 				this.logger.log(
@@ -459,7 +467,34 @@ export class DataClient {
 		if (missing.length > 0) {
 			throw new Error(`Missing payloads for leaf indices: ${missing.join(", ")}. This should never happen.`)
 		}
-		this.logger.log(`Successfully synced.`)
+	}
+
+	/** Verify the actual cached payloads, including extra entries beyond the contract's leaf count. */
+	private async verifyCachedPayloads(leafCount: number, expectedRootCID: CID<unknown, 113, 18, 1>): Promise<void> {
+		const errorPrefix = `[DataClient] Cache integrity check failed for ${this.account}`
+		let payloadCount = 0
+		let highestIndex = -1
+		for await (const { index } of this.iterate()) {
+			payloadCount++
+			highestIndex = Math.max(highestIndex, index)
+		}
+		if (payloadCount !== leafCount || highestIndex !== leafCount - 1) {
+			throw new Error(
+				`${errorPrefix}: expected ${leafCount} contiguous payloads starting at index 0; found ${payloadCount} payloads with highest index ${highestIndex}.`
+			)
+		}
+
+		// Read by index: storage iteration order and cached root metadata are not authoritative.
+		const mmr = new MerkleMountainRange()
+		for (let index = 0; index < leafCount; index++) {
+			const record = await getLeafRecordFromDB(this.storage, this.account, index)
+			if (!record) throw new Error(`${errorPrefix}: missing leaf record at index ${index}.`)
+			await mmr.addLeafWithTrail(index, record.payload)
+		}
+		const actualRootCID = await mmr.rootCID()
+		if (!actualRootCID.equals(expectedRootCID)) {
+			throw new Error(`${errorPrefix}: root mismatch; expected ${expectedRootCID}, got ${actualRootCID}.`)
+		}
 	}
 
 	/**
