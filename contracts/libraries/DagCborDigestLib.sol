@@ -36,7 +36,7 @@ library DagCborDigestLib {
 
 		// Start inline assembly for CBOR byte-string construction and Keccak-256 hashing
 		assembly {
-			// ptr: pointer to start of buffer (free memory) where we will write the DAG-CBOR block
+			// Reuse memory at the free pointer without advancing it; only the digest escapes.
 			let ptr := mload(0x40)
 			// headerLength: header length in bytes
 			let headerLength := 0
@@ -81,8 +81,6 @@ library DagCborDigestLib {
 			calldatacopy(add(ptr, headerLength), calldataOffset, dataLength)
 			// Compute the Keccak-256 digest of the encoded block
 			hash := keccak256(ptr, add(headerLength, dataLength))
-			// Advance the free memory pointer past the buffer and 32 bytes of padding
-			mstore(0x40, add(ptr, add(add(dataLength, headerLength), 32)))
 		}
 	}
 	/// @notice Encodes two child CIDs into a CBOR map and returns its Keccak-256 digest.
@@ -100,7 +98,7 @@ library DagCborDigestLib {
 	function encodeLinkNode(bytes32 leftHash, bytes32 rightHash) internal pure returns (bytes32 hash) {
 		// Start inline assembly for CBOR link node construction and Keccak-256 hashing
 		assembly {
-			// ptr: pointer to start of buffer (free memory)
+			// Reuse memory at the free pointer without advancing it; only the digest escapes.
 			let ptr := mload(0x40)
 			// Bytes 0..11: map(2), "L", tag(42), bytes(37), identity prefix, CIDv1/DAG-CBOR/Keccak-256.
 			// Left-align the 12-byte header; the digest write replaces the word's trailing zeros.
@@ -114,8 +112,6 @@ library DagCborDigestLib {
 			mstore(add(ptr, 55), rightHash)
 			// Compute the Keccak-256 digest of the encoded link node
 			hash := keccak256(ptr, 87)
-			// Advance the free memory pointer past the buffer and 32 bytes of padding
-			mstore(0x40, add(ptr, add(87, 32)))
 		}
 	}
 }

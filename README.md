@@ -85,7 +85,7 @@ event LeafAppended(
 );
 ```
 
-For 32-byte payloads and initialized storage, inserts with zero, one, or two merges use approximately 15.3k–19.4k execution gas. See below for measurement settings and total transaction costs.
+For 32-byte payloads and initialized storage, inserts with zero, one, or two merges use approximately 15.3k–19.3k execution gas. See below for measurement settings and total transaction costs.
 
 ## How the off-chain component works
 
@@ -392,24 +392,24 @@ Execution gas excludes the transaction's intrinsic gas. Total transaction gas in
 
 | Append scenario | Execution gas | Total transaction gas |
 | --- | ---: | ---: |
-| Single leaf, 0 merges | 15,330 | 37,186 |
-| Single leaf, 1 merge | 16,329 | 38,185 |
-| Single leaf, 2 merges | 19,385 | 41,241 |
-| Single leaf, 3 merges | 22,445 | 44,301 |
-| Single leaf, 4 merges | 25,505 | 47,361 |
-| Single leaf, 5 merges | 28,562 | 50,418 |
-| Single leaf, 6 merges | 31,622 | 53,478 |
-| Single leaf, 7 merges | 34,683 | 56,539 |
-| Single leaf, 8 merges | 37,743 | 59,599 |
-| Single leaf, 9 merges | 40,800 | 62,656 |
-| Single leaf, 10 merges | 43,861 | 65,717 |
-| First leaf for a new account | 50,621 | 72,477 |
-| Batch of 8 leaves, initialized accumulator | 71,865 | 99,617 |
-| Batch of 32 leaves, initialized accumulator | 228,644 | 275,620 |
+| Single leaf, 0 merges | 15,303 | 37,159 |
+| Single leaf, 1 merge | 16,259 | 38,115 |
+| Single leaf, 2 merges | 19,276 | 41,132 |
+| Single leaf, 3 merges | 22,294 | 44,150 |
+| Single leaf, 4 merges | 25,311 | 47,167 |
+| Single leaf, 5 merges | 28,328 | 50,184 |
+| Single leaf, 6 merges | 31,345 | 53,201 |
+| Single leaf, 7 merges | 34,363 | 56,219 |
+| Single leaf, 8 merges | 37,380 | 59,236 |
+| Single leaf, 9 merges | 40,397 | 62,253 |
+| Single leaf, 10 merges | 43,414 | 65,270 |
+| First leaf for a new account | 50,594 | 72,450 |
+| Batch of 8 leaves, initialized accumulator | 71,339 | 99,091 |
+| Batch of 32 leaves, initialized accumulator | 226,294 | 273,270 |
 
 Across sequential appends, 75% require zero or one merge, and 87.5% require at most two. Exact merge depth `d` occurs once every `2^(d + 1)` appends; deeper merges become exponentially less frequent. Gas also depends on storage initialization and payload size, so these figures are representative measurements rather than fixed prices for all inserts.
 
-Larger payloads can hit the calldata gas floor. For example, a 4 KiB nonzero payload with one merge uses 51,351 execution gas but is charged 185,700 total transaction gas under these settings.
+Larger payloads can hit the calldata gas floor. For example, a 4 KiB nonzero payload with one merge uses 50,790 execution gas but is charged 185,700 total transaction gas under these settings.
 
 ## How the CID is computed by the smart contract (for nerds)
 
