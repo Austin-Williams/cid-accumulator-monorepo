@@ -33,11 +33,13 @@ library PeaksCacheLib {
 		cache.dirtyMask |= (1 << i);
 	}
 
-	/// @notice Flushes all dirty cached peaks to contract storage.
+	/// @notice Flushes dirty cached peaks that remain active after the batch.
 	/// @param cache In-memory peaks cache.
 	/// @param store Reference to the contract's storage peaks array.
-	function flush(PeaksCache memory cache, bytes32[32] storage store) internal {
-		uint256 mask = cache.dirtyMask;
+	/// @param peakCount Number of active peaks after the batch.
+	function flush(PeaksCache memory cache, bytes32[32] storage store, uint256 peakCount) internal {
+		// Intermediate peaks merged away during the batch do not need to be persisted.
+		uint256 mask = cache.dirtyMask & ((1 << peakCount) - 1);
 		// Shift each visited bit out of the mask and stop after the last dirty slot.
 		for (uint256 i = 0; mask != 0; ) {
 			if ((mask & 1) == 1) store[i] = cache.peakValues[i];

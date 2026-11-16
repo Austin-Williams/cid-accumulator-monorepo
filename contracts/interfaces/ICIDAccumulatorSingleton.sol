@@ -3,6 +3,8 @@ pragma solidity 0.8.38;
 
 interface ICIDAccumulatorSingleton {
     /// @notice Returns the packed MMR metadata bits and peaks for any account.
+    /// @dev Only the first peakCount entries are active; ignore the remaining slots, which may contain stale hashes.
+    /// @dev peakCount is stored in metadata bits 160..164.
     function getState(
         address account
     ) external view returns (uint256, bytes32[32] memory);

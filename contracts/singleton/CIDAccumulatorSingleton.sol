@@ -45,6 +45,8 @@ contract CIDAccumulatorSingleton {
 	// EXTERNAL FUNCTIONS
 
 	/// @notice Returns the packed MMR metadata bits and peaks for any account.
+	/// @dev Only the first peakCount entries are active; ignore the remaining slots, which may contain stale hashes.
+	/// @dev peakCount is stored in metadata bits 160..164.
 	function getState(address account) external view returns (uint256, bytes32[32] memory) {
 		StorageLayoutLib.Layout storage storageLayout = account.layout();
 		return (storageLayout.mmrMetaBits, storageLayout.peaks);
@@ -87,7 +89,7 @@ contract CIDAccumulatorSingleton {
 		}
 
 		storageLayout.mmrMetaBits = packedBits; // SSTORE
-		peaksCache.flush(storageLayout.peaks);
+		peaksCache.flush(storageLayout.peaks, packedBits.getPeakCount());
 	}
 
 	/// @notice Computes and returns the raw CIDv1 byte sequence for any account’s MMR root.

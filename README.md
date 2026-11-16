@@ -93,6 +93,8 @@ For 32-byte payloads and initialized storage, inserts with zero, one, or two mer
 
 To get the root CID for your account's data, call either the `getRootCID(address account) external view returns (bytes memory rawCIDv1)` function (for the raw CIDv1 byte sequence) or the `getRootCIDString(address account) external view returns (string memory)` (for the base32-encoded CID string).
 
+To read the peaks directly, call `getState(account)`. It returns packed metadata and 32 peak slots. Only the first `peakCount = (metadata >> 160) & 0x1f` entries are active; ignore the remaining slots, which may be zero or contain stale hashes.
+
 Then use that root CID to download the data from your IPFS HTTP gateway. For example, with Kubo running locally: `http://127.0.0.1:8080/ipfs/<rootCID>?format=car`.
 
 To open a CID manually in a browser, use `https://inbrowser.link/ipfs/<rootCID>`. This gateway retrieves content through a browser service worker; programmatic clients need a local or hosted HTTP gateway.
@@ -406,8 +408,11 @@ Execution gas excludes the transaction's intrinsic gas. Total transaction gas in
 | Single leaf, 9 merges | 39,534 | 61,390 |
 | Single leaf, 10 merges | 42,494 | 64,350 |
 | First leaf for a new account | 50,254 | 72,110 |
-| Batch of 8 leaves, initialized accumulator | 66,723 | 94,475 |
-| Batch of 32 leaves, initialized accumulator | 215,070 | 262,046 |
+| Batch of 8 leaves, initialized accumulator starting at 2²⁰ leaves | 56,540 | 84,292 |
+| Batch of 32 leaves, initialized accumulator starting at 2²⁰ leaves | 194,575 | 241,551 |
+| Batch of 32 leaves for a new account | 229,788 | 276,764 |
+
+Batch appends persist only changed peaks that remain active at the end of the batch. Savings depend on the starting leaf count and batch size; when every changed slot remains active, the final mask adds about 129 execution gas under these settings. Skipping an intermediate peak's first storage write can also defer its initialization cost to a later append that needs that slot.
 
 Across sequential appends, 75% require zero or one merge, and 87.5% require at most two. Exact merge depth `d` occurs once every `2^(d + 1)` appends; deeper merges become exponentially less frequent. Gas also depends on storage initialization and payload size, so these figures are representative measurements rather than fixed prices for all inserts.
 
