@@ -1,26 +1,34 @@
-import { createLightClient } from "cid-accumulator-client"
+import { createLightClient, EthereumAddress } from "cid-accumulator-client"
 
 window.addEventListener("DOMContentLoaded", () => {
 	const accountInput = document.getElementById("account-input") as HTMLInputElement
 	const startButton = document.getElementById("start-button") as HTMLButtonElement
 	const stopButton = document.getElementById("stop-button") as HTMLButtonElement
+	const clientWindow = window as Window & { client?: Awaited<ReturnType<typeof createLightClient>> }
 
 	startButton.addEventListener("click", async () => {
-		const account = accountInput.value.trim()
-		console.log("Tracking account:", account)
-		let client = (window as any).client
-		if (!client) {
-			client = await createLightClient(account)
-				; (window as any).client = client
-			console.log("Light client created. Accessible via window.client")
-		}
-		client.start().catch((error: unknown) => {
+		if (startButton.disabled) return
+		startButton.disabled = true
+		try {
+			const account = new EthereumAddress(accountInput.value.trim())
+			let client = clientWindow.client
+			if (!client || client.account.toString() !== account.toString()) {
+				client?.stop()
+				client = await createLightClient(account)
+				clientWindow.client = client
+				console.log("Light client created. Accessible via window.client")
+			}
+			console.log("Tracking account:", client.account.toString())
+			await client.start()
+		} catch (error: unknown) {
 			console.error("Failed to start light client:", error)
-		})
+		} finally {
+			startButton.disabled = false
+		}
 	})
 
 	stopButton.addEventListener("click", async () => {
-		const client = (window as any).client
+		const client = clientWindow.client
 		if (client) {
 			try {
 				await client.stop()
