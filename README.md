@@ -152,9 +152,9 @@ for await (const { index, payload } of client.iterate()) {
   console.log(`Leaf ${index}: ${payload}`)
 }
 
-// Create an index of payloads based on a substring (4-bytes starting at position 0 in this example)
+// Index payloads by their first 4 hex characters (2 bytes)
 const payloadIndexMap = await client.createIndexByPayloadSlice(0, 4)
-// Now you can look up payloads by their 4-byte prefix
+// Look up payloads whose first two bytes are 0xbeef
 const matchingPayloadsArray = payloadIndexMap.get('beef')
 
 // Download all payloads to a file

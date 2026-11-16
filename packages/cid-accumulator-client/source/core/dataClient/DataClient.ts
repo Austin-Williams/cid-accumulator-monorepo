@@ -284,16 +284,17 @@ export class DataClient {
 	}
 
 	/**
-	 * @notice Creates an index of all payload entries for this account, keyed by a substring of their payload.
-	 * @param offset The starting index of the substring.
-	 * @param length The length of the substring.
+	 * @notice Groups this account's hex-encoded payloads by a substring, without a 0x prefix.
+	 * @param offset The starting position in hex characters (two characters per byte).
+	 * @param length The number of hex characters to use as the key.
+	 * @returns A map from each substring to its matching full payloads.
 	 */
 	public async createIndexByPayloadSlice(offset: number, length: number): Promise<Map<string, string[]>> {
 		const index = new Map<string, string[]>()
-		for await (const { value } of this.storage.iterate(`account:${this.account.toString()}:leaf`)) {
-			const slice = value.slice(offset, offset + length)
+		for await (const { payload } of this.iterate()) {
+			const slice = payload.slice(offset, offset + length)
 			if (!index.has(slice)) index.set(slice, [])
-			index.get(slice)!.push(value)
+			index.get(slice)!.push(payload)
 		}
 		return index
 	}
