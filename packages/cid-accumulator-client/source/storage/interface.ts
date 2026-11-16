@@ -13,8 +13,9 @@ import type { LifecycleComponent } from "../types/common.js"
  * - "account-registry:account:{index}" - accountAddress
  *
  * EventCacheService storage:
- * - "events:block:{blockNumber}" - JSON array of account addresses with events in the block
- * - "events:account:{account}:block:{blockNumber}" - JSON array of the leafIndex of events for this account in this block
+ * - "events:block:{blockNumber}" - informational JSON array of accounts in the latest fetch; not proof of coverage
+ * - "events:complete:block:{blockNumber}" - "true" after an unfiltered fetch completes
+ * - "events:account:{account}:block:{blockNumber}" - complete JSON array of leaf indices for this account, including []
  *
  * Shared leaf data storage (populated via on-chain events, IPFS downloads, CID-walkbacks, MMRs, etc):
  * Never delete anything another service has already written.
