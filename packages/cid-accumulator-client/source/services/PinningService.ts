@@ -73,6 +73,16 @@ export class PinningService implements LifecycleComponent {
 		}
 		this.isRunning = true
 		this.logger.log("Starting PinningService")
+		// Listen before initial pinning can yield, so discoveries during startup are tracked too.
+		this.unsubscribeFunctions.push(
+			this.accountRegistryService.subscribe((account: EthereumAddress) => {
+				this.trackNewAccount(account).catch((error) => {
+					this.logger.error(
+						`Error tracking new account ${account}: ${error instanceof Error ? error.message : String(error)}`
+					)
+				})
+			})
+		)
 		const accounts: EthereumAddress[] = this.accountRegistryService.knownAccounts
 
 		try {
@@ -91,17 +101,6 @@ export class PinningService implements LifecycleComponent {
 			this.logger.error(`Error in parallel account tracking: ${error instanceof Error ? error.message : String(error)}`)
 		}
 		if (!this.isRunning) return
-
-		// Subscribe to new accounts
-		this.unsubscribeFunctions.push(
-			this.accountRegistryService.subscribe((account: EthereumAddress) => {
-				this.trackNewAccount(account).catch((error) => {
-					this.logger.error(
-						`Error tracking new account ${account}: ${error instanceof Error ? error.message : String(error)}`
-					)
-				})
-			})
-		)
 
 		//// start periodically sanity checking that local root CIDs match on-chain root CIDs
 		this.logger.log(`Starting periodic sanity check with interval of ${this.syncCheckIntervalMs}ms`)
