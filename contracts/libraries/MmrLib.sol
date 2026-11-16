@@ -10,10 +10,11 @@ library MmrLib {
 	/// @return count Number of merge steps.
 	/// @dev For MMRS the number of merges is equal to the number of trailing ones in the binary representation of the leaf index.
 	function mergeCount(uint256 leafIndex) internal pure returns (uint256 count) {
-		// count trailing ones in leafIndex
-		for (; (leafIndex & 1) == 1; leafIndex >>= 1) {
-			// prettier-ignore
-			unchecked {++count;}
+		assembly ("memory-safe") {
+			// Incrementing flips the trailing ones to zeros; isolate that run of ones.
+			let trailingOnes := and(leafIndex, not(add(leafIndex, 1)))
+			// Its bit length is the merge count. CLZ(0) is 256, giving zero for even indices.
+			count := sub(256, clz(trailingOnes))
 		}
 	}
 

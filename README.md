@@ -47,6 +47,8 @@ The mainnet contract address is `NOT_YET_DEPLOYED`. Replace this placeholder in 
 
 The canonical Solidity sources live in the root [`contracts/`](contracts/) directory: the [singleton contract](contracts/singleton/CIDAccumulatorSingleton.sol), its [libraries](contracts/libraries/), and the public [ICIDAccumulatorSingleton interface](contracts/interfaces/ICIDAccumulatorSingleton.sol). Make contract changes here and point Solidity build or test tooling at this directory.
 
+Compile with Solidity 0.8.38 targeting Osaka. The deployment chain must support the [CLZ opcode](https://eips.ethereum.org/EIPS/eip-7939) used by `MmrLib.mergeCount`.
+
 ```solidity
 interface ICIDAccumulator { function appendLeaf(bytes calldata payload) external; }
 
@@ -85,7 +87,7 @@ event LeafAppended(
 );
 ```
 
-For 32-byte payloads and initialized storage, inserts with zero, one, or two merges use approximately 15.1k–19.0k execution gas. See below for measurement settings and total transaction costs.
+For 32-byte payloads and initialized storage, inserts with zero, one, or two merges use approximately 15.0k–18.9k execution gas. See below for measurement settings and total transaction costs.
 
 ## How the off-chain component works
 
@@ -392,24 +394,24 @@ Execution gas excludes the transaction's intrinsic gas. Total transaction gas in
 
 | Append scenario | Execution gas | Total transaction gas |
 | --- | ---: | ---: |
-| Single leaf, 0 merges | 15,069 | 36,925 |
-| Single leaf, 1 merge | 16,025 | 37,881 |
-| Single leaf, 2 merges | 19,042 | 40,898 |
-| Single leaf, 3 merges | 22,059 | 43,915 |
-| Single leaf, 4 merges | 25,076 | 46,932 |
-| Single leaf, 5 merges | 28,093 | 49,949 |
-| Single leaf, 6 merges | 31,111 | 52,967 |
-| Single leaf, 7 merges | 34,128 | 55,984 |
-| Single leaf, 8 merges | 37,145 | 59,001 |
-| Single leaf, 9 merges | 40,162 | 62,018 |
-| Single leaf, 10 merges | 43,180 | 65,036 |
-| First leaf for a new account | 50,360 | 72,216 |
-| Batch of 8 leaves, initialized accumulator | 67,977 | 95,729 |
-| Batch of 32 leaves, initialized accumulator | 220,260 | 267,236 |
+| Single leaf, 0 merges | 15,046 | 36,902 |
+| Single leaf, 1 merge | 15,944 | 37,800 |
+| Single leaf, 2 merges | 18,903 | 40,759 |
+| Single leaf, 3 merges | 21,862 | 43,718 |
+| Single leaf, 4 merges | 24,821 | 46,677 |
+| Single leaf, 5 merges | 27,780 | 49,636 |
+| Single leaf, 6 merges | 30,740 | 52,596 |
+| Single leaf, 7 merges | 33,699 | 55,555 |
+| Single leaf, 8 merges | 36,658 | 58,514 |
+| Single leaf, 9 merges | 39,617 | 61,473 |
+| Single leaf, 10 merges | 42,577 | 64,433 |
+| First leaf for a new account | 50,337 | 72,193 |
+| Batch of 8 leaves, initialized accumulator | 67,387 | 95,139 |
+| Batch of 32 leaves, initialized accumulator | 217,726 | 264,702 |
 
 Across sequential appends, 75% require zero or one merge, and 87.5% require at most two. Exact merge depth `d` occurs once every `2^(d + 1)` appends; deeper merges become exponentially less frequent. Gas also depends on storage initialization and payload size, so these figures are representative measurements rather than fixed prices for all inserts.
 
-Larger payloads can hit the calldata gas floor. For example, a 4 KiB nonzero payload with one merge uses 50,552 execution gas but is charged 185,700 total transaction gas under these settings.
+Larger payloads can hit the calldata gas floor. For example, a 4 KiB nonzero payload with one merge uses 50,471 execution gas but is charged 185,700 total transaction gas under these settings.
 
 ## How the CID is computed by the smart contract (for nerds)
 
