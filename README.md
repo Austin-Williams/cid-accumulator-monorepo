@@ -388,33 +388,53 @@ await seeder.stop()
 
 ## Gas Costs
 
-The cost of `appendLeaf` depends on the payload size, the number of merges, and whether the storage slots being written already contain data. The measurements below use Solidity 0.8.38, the optimizer enabled with 200 runs, `viaIR: false`, and the Osaka compiler target and EVM rules. Payloads contain 32 nonzero bytes. The merge-depth rows use an initialized accumulator with nonzero peak storage slots; first-time writes to zero slots cost more.
+The execution gas cost of `appendLeaf` depends on how many **merge steps** are triggered by that particular insert. Most inserts (75% of them) require zero or one peak update and are cheap (cheaper than a fresh SSTORE). Occasionally, an insert will trigger a chain of merges — and this is what increases gas (for that insert only). Gas estimations below assume a 32-byte payload, but the contract can handle arbitrary length bytes.
 
-Execution gas excludes the transaction's intrinsic gas. Total transaction gas includes the base transaction cost, calldata, and any applicable calldata gas floor.
+| Merge Depth | Description                      | **Approx Gas** |
+| ----------- | -------------------------------- | -------------- |
+| 0           | No merges (new peak at height 0) | ≈ 15.0k gas    |
+| 1           | Merge with 1 peak  → height 1    | ≈ 15.9k gas    |
+| 2           | Merge with 2 peaks → height 2    | ≈ 18.8k gas    |
+| 3           | Merge with 3 peaks → height 3    | ≈ 21.8k gas    |
+| 4           | Merge with 4 peaks → height 4    | ≈ 24.7k gas    |
+| 5           | Merge with 5 peaks → height 5    | ≈ 27.7k gas    |
+| 6           | Merge with 6 peaks → height 6    | ≈ 30.7k gas    |
+| 7           | Merge with 7 peaks → height 7    | ≈ 33.6k gas    |
+| 8           | Merge with 8 peaks → height 8    | ≈ 36.6k gas    |
+| 9           | Merge with 9 peaks → height 9    | ≈ 39.5k gas    |
+| 10          | Merge with 10 peaks → height 10  | ≈ 42.5k gas    |
 
-| Append scenario | Execution gas | Total transaction gas |
-| --- | ---: | ---: |
-| Single leaf, 0 merges | 14,963 | 36,819 |
-| Single leaf, 1 merge | 15,861 | 37,717 |
-| Single leaf, 2 merges | 18,820 | 40,676 |
-| Single leaf, 3 merges | 21,779 | 43,635 |
-| Single leaf, 4 merges | 24,738 | 46,594 |
-| Single leaf, 5 merges | 27,697 | 49,553 |
-| Single leaf, 6 merges | 30,657 | 52,513 |
-| Single leaf, 7 merges | 33,616 | 55,472 |
-| Single leaf, 8 merges | 36,575 | 58,431 |
-| Single leaf, 9 merges | 39,534 | 61,390 |
-| Single leaf, 10 merges | 42,494 | 64,350 |
-| First leaf for a new account | 50,254 | 72,110 |
-| Batch of 8 leaves, initialized accumulator starting at 2²⁰ leaves | 56,540 | 84,292 |
-| Batch of 32 leaves, initialized accumulator starting at 2²⁰ leaves | 194,575 | 241,551 |
-| Batch of 32 leaves for a new account | 229,788 | 276,764 |
 
-Batch appends persist only changed peaks that remain active at the end of the batch. Savings depend on the starting leaf count and batch size; when every changed slot remains active, the final mask adds about 129 execution gas under these settings. Skipping an intermediate peak's first storage write can also defer its initialization cost to a later append that needs that slot.
+> ℹ️ Most inserts (87.5%) fall in the **15.0K–18.8K gas** range. Deeper merges are **exponentially rare**:
+>
+> - Merge depth 3 happens once every 16 inserts
+> - Merge depth 6 happens once every 128 inserts
+> - Merge depth 9 happens once every 1024 inserts
 
-Across sequential appends, 75% require zero or one merge, and 87.5% require at most two. Exact merge depth `d` occurs once every `2^(d + 1)` appends; deeper merges become exponentially less frequent. Gas also depends on storage initialization and payload size, so these figures are representative measurements rather than fixed prices for all inserts.
+For example, if you insert `2^20` entries (just over 1 million), here’s how often each merge depth occurs:
 
-Larger payloads can hit the calldata gas floor. For example, a 4 KiB nonzero payload with one merge uses 50,388 execution gas but is charged 185,700 total transaction gas under these settings.
+| Merge Depth | Inserts (%) | **Approx Gas** |
+| ----------- | ----------- | -------------- |
+| 0           | 50.0%       | ≈ 15 .0 k      |
+| 1           | 25.0%       | ≈ 15 .9 k      |
+| 2           | 12.5%       | ≈ 18 .8 k      |
+| 3           | 6.25%       | ≈ 21 .8 k      |
+| 4           | 3.125%      | ≈ 24 .7 k      |
+| 5           | 1.5625%     | ≈ 27 .7 k      |
+| 6           | 0.78125%    | ≈ 30 .7 k      |
+| 7           | 0.390625%   | ≈ 33 .6 k      |
+| 8           | 0.1953125%  | ≈ 36 .6 k      |
+| 9           | 0.09765625% | ≈ 39 .5 k      |
+| 10          | 0.048828125%| ≈ 42 .5 k      |
+
+
+> ✅ Even after a million inserts, **87.5%** of them will require **two or fewer merges**, keeping gas costs low and consistent.
+
+So the gas cost is determined only by that insert’s merge activity — **not** by the total size of the data set.
+
+The mean steady-state cost per insert is ≈ 16.9k gas.
+
+Note: The very first time an address appends data to the accumulator, the execution cost is about 50.3k gas because two empty storage slots need to be unzeroed when initializing the account's accumulator.
 
 ## How the CID is computed by the smart contract (for nerds)
 
