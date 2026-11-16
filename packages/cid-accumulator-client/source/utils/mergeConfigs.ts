@@ -1,4 +1,10 @@
-import { DeepPartial } from "../types/common.js"
+import type { DeepPartial } from "../types/common.js"
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	if (value === null || typeof value !== "object") return false
+	const prototype = Object.getPrototypeOf(value)
+	return prototype === Object.prototype || prototype === null
+}
 
 export function mergeConfigWithDefaults<T>(userConfig: DeepPartial<T> | undefined, defaultConfig: T): T {
 	const result: any = Array.isArray(defaultConfig) ? [] : {}
@@ -7,16 +13,9 @@ export function mergeConfigWithDefaults<T>(userConfig: DeepPartial<T> | undefine
 		const userValue = userConfig?.[key as keyof T]
 		const defaultValue = defaultConfig[key]
 
-		if (
-			userValue !== undefined &&
-			userValue !== null &&
-			typeof userValue === "object" &&
-			!Array.isArray(userValue) &&
-			typeof defaultValue === "object" &&
-			!Array.isArray(defaultValue)
-		) {
-			// Recursively merge nested objects
-			result[key] = mergeConfigWithDefaults(userValue, defaultValue)
+		if (isPlainObject(userValue) && isPlainObject(defaultValue)) {
+			// Merge nested configuration records, preserving class instances as complete values.
+			result[key] = mergeConfigWithDefaults<Record<string, unknown>>(userValue, defaultValue)
 		} else if (userValue !== undefined) {
 			result[key] = userValue
 		} else {
