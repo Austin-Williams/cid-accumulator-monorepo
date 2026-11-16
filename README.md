@@ -83,8 +83,6 @@ event LeafAppended(
 );
 ```
 
-The number of merge hashes is the number of trailing one bits in the leaf index. These hashes occupy the end of `payloadAndMergeHashes`, in the order the peaks were consumed; everything before them is the payload. For example, leaf index 3 (binary `11`) has two merge hashes, so the last 64 bytes are hashes. The client unpacks this event into the usual `leafIndex`, `previousInsertBlockNumber`, `payload`, and `mergeLeftHashes` fields. When decoding manually in JavaScript, unpack `metadata` with `BigInt` before converting either 32-bit field to `Number`.
-
 For 32-byte payloads and initialized storage, inserts with zero, one, or two merges use approximately 14.0k–17.7k execution gas. See below for measurement settings and total transaction costs.
 
 ## How the off-chain component works
