@@ -157,9 +157,7 @@ packages/cid-accumulator-client/.db-test
 cache/
 artifacts/
 
-# Vitest
-.vitest/
-vitest.config.*.timestamp-*
+# Test output
 coverage/
 test-results/
 

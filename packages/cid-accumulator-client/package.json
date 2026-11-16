@@ -10,20 +10,16 @@
 		"build": "tsc --project tsconfig.json",
 		"clean": "rm -rf dist",
 		"prepare": "npm run build",
-		"test:coverage": "vitest run --coverage",
-		"test:integration": "vitest run test/integration/sepolia.vitest.ts",
 		"lint": "eslint \"source/**/*.{ts,js}\"",
 		"seeder": "tsx ./source/core/seeder/runSeeder.ts"
 	},
 	"devDependencies": {
 		"@types/node": "^18.19.87",
-		"@vitest/coverage-v8": "^3.1.2",
 		"dotenv": "^16.0.3",
 		"ethers": "^6.6.2",
 		"prettier": "^2.8.4",
 		"tsx": "^4.19.4",
-		"typescript": "^5.8.3",
-		"vitest": "^3.1.2"
+		"typescript": "^5.8.3"
 	},
 	"exports": {
 		".": {

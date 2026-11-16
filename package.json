@@ -11,9 +11,6 @@
 		"lib": "lib",
 		"test": "test"
 	},
-	"scripts": {
-		"test": "echo \"No tests yet\" && exit 0"
-	},
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/Austin-Williams/cid-accumulator-singleton.git"
