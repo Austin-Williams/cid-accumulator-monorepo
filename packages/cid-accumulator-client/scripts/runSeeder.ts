@@ -17,8 +17,8 @@ export async function runSeeder() {
 
 
 	const customConfig: SeederConfigUserInput = {}
-	if (cliArgs.dbPath) {
-		customConfig.dbPath = cliArgs.dbPath
+	if (cliArgs.nodeDbPath) {
+		customConfig.nodeDbPath = cliArgs.nodeDbPath
 	}
 	if (cliArgs.accumulatorContractAddress) {
 		customConfig.accumulatorContractConfig = { ...customConfig.accumulatorContractConfig, accumulatorContractAddress: cliArgs.accumulatorContractAddress }
@@ -66,7 +66,7 @@ export async function runSeeder() {
 // --ethereumHttpRpcUrl (string)
 // --ipfsGatewayUrl (string)
 // --ipfsPinnerBaseUrl (string)
-// --dbPath (string)
+// --nodeDbPath (string)
 
 interface CliArgs {
 	accumulatorContractAddress?: string
@@ -75,7 +75,7 @@ interface CliArgs {
 	ethereumHttpRpcUrl?: string
 	ipfsGatewayUrl?: string
 	ipfsPinnerBaseUrl?: string
-	dbPath?: string
+	nodeDbPath?: string
 }
 
 function parseCliArgs(): CliArgs {
@@ -120,8 +120,8 @@ function parseCliArgs(): CliArgs {
 					args.ipfsPinnerBaseUrl = value ?? process.argv[++i];
 					break;
 
-				case 'dbPath':
-					args.dbPath = value ?? process.argv[++i];
+				case 'nodeDbPath':
+					args.nodeDbPath = value ?? process.argv[++i];
 					break;
 			}
 		}

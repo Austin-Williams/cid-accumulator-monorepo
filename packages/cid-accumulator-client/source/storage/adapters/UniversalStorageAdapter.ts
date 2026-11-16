@@ -6,11 +6,11 @@ import { isBrowser } from "../../utils/envDetection.js"
 export class UniversalStorageAdapter implements Storage {
 	private backend: Storage
 
-	constructor(dbPath?: string) {
+	constructor(nodeDbPath?: string, browserDbName?: string) {
 		if (isBrowser()) {
-			this.backend = new IndexedDBAdapter()
+			this.backend = new IndexedDBAdapter(browserDbName)
 		} else {
-			this.backend = new JSMapAdapter(dbPath)
+			this.backend = new JSMapAdapter(nodeDbPath)
 		}
 	}
 

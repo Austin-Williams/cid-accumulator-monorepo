@@ -50,13 +50,13 @@ describe("seeder CLI configuration", () => {
 		test(`${format} arguments preserve database paths and URL query values through seeder creation`, async (t) => {
 			const directory = await mkdtemp(join(tmpdir(), "seeder-cli-"))
 			t.after(() => rm(directory, { recursive: true, force: true }))
-			const dbPath = join(directory, "cache = primary.json")
+			const nodeDbPath = join(directory, "cache = primary.json")
 			const contractAddress = "0x" + "ab".repeat(20)
 			const ethereumHttpRpcUrl = "https://rpc.example.test/?token=abc==&network=mainnet"
 			const ipfsGatewayUrl = "https://gateway.example.test/?token=def==&mode=car"
 			const ipfsPinnerBaseUrl = "https://pinner.example.test/api/v0?token=ghi==&pin=true"
 			const options = {
-				dbPath,
+				nodeDbPath,
 				ethereumHttpRpcUrl,
 				ipfsGatewayUrl,
 				ipfsPinnerBaseUrl,
@@ -67,9 +67,9 @@ describe("seeder CLI configuration", () => {
 			const args = Object.entries(options).flatMap(([key, value]) =>
 				format === "inline" ? [`--${key}=${value}`] : [`--${key}`, value]
 			)
-			// A missing dbPath must fail before the test writes anything to the default database.
+			// Verify the selected path before the test writes anything to storage.
 			const config = await runCli(args)
-			assert.equal(config.dbPath, dbPath)
+			assert.equal(config.nodeDbPath, nodeDbPath)
 			assert.equal(config.accumulatorContractConfig.ethereumHttpRpcUrl, ethereumHttpRpcUrl)
 			assert.equal(config.ipfsResolverConfig.gatewayUrl, ipfsGatewayUrl)
 			assert.equal(config.ipfsPinnerConfig.baseUrl, ipfsPinnerBaseUrl)
@@ -83,13 +83,14 @@ describe("seeder CLI configuration", () => {
 			)
 
 			await runCli(args, true)
-			assert.deepEqual(JSON.parse(await readFile(`${dbPath}-${contractAddress}`, "utf8")), { "cli:test": "stored" })
+			assert.deepEqual(JSON.parse(await readFile(`${nodeDbPath}-${contractAddress}`, "utf8")), { "cli:test": "stored" })
 		})
 	}
 
 	test("omitted options keep the default database path and URLs", async () => {
 		const config = await runCli([])
-		assert.equal(config.dbPath, defaultSeederConfig.dbPath)
+		assert.equal(config.nodeDbPath, defaultSeederConfig.nodeDbPath)
+		assert.equal(config.browserDbName, "cid-accumulator")
 		assert.equal(
 			config.accumulatorContractConfig.ethereumHttpRpcUrl,
 			defaultSeederConfig.accumulatorContractConfig.ethereumHttpRpcUrl
@@ -100,26 +101,26 @@ describe("seeder CLI configuration", () => {
 
 	test("mixed argument formats retain the last repeated option and following flags", async () => {
 		const config = await runCli([
-			"--dbPath=first.json",
-			"--dbPath",
+			"--nodeDbPath=first.json",
+			"--nodeDbPath",
 			"second = cache.json",
 			"--ethereumHttpRpcUrl",
 			"https://first.example.test/?token=first==",
 			"--ethereumHttpRpcUrl=https://second.example.test/?token=second==",
 			"--remotePin=false",
 		])
-		assert.equal(config.dbPath, "second = cache.json")
+		assert.equal(config.nodeDbPath, "second = cache.json")
 		assert.equal(config.accumulatorContractConfig.ethereumHttpRpcUrl, "https://second.example.test/?token=second==")
 		assert.equal(config.ipfsPinnerConfig.remotePin, false)
 	})
 
 	test("an empty inline value does not consume the following flag", async () => {
-		const config = await runCli(["--ethereumHttpRpcUrl=", "--dbPath=cache.json", "--remotePin=true"])
+		const config = await runCli(["--ethereumHttpRpcUrl=", "--nodeDbPath=cache.json", "--remotePin=true"])
 		assert.equal(
 			config.accumulatorContractConfig.ethereumHttpRpcUrl,
 			defaultSeederConfig.accumulatorContractConfig.ethereumHttpRpcUrl
 		)
-		assert.equal(config.dbPath, "cache.json")
+		assert.equal(config.nodeDbPath, "cache.json")
 		assert.equal(config.ipfsPinnerConfig.remotePin, true)
 	})
 })

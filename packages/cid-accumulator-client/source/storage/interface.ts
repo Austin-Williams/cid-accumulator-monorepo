@@ -1,4 +1,12 @@
 import type { LifecycleComponent } from "../types/common.js"
+
+export interface StorageConfig {
+	/** Filesystem path for Node storage. */
+	nodeDbPath: string
+	/** IndexedDB database name for browser storage. Defaults to "cid-accumulator". */
+	browserDbName: string
+}
+
 /**
  * DB Schema for CID Accumulator Singleton
  *	IpfsPinner storage:

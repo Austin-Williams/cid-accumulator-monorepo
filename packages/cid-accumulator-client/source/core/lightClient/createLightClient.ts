@@ -28,7 +28,7 @@ export async function createLightClient(
 	const mergedConfig = mergeConfigWithDefaults(config, defaultLightClientConfig)
 
 	// Create dependencies
-	const storage: Storage = new UniversalStorageAdapter(mergedConfig.dbPath)
+	const storage: Storage = new UniversalStorageAdapter(mergedConfig.nodeDbPath, mergedConfig.browserDbName)
 	const accumulatorContract = new AccumulatorContract(mergedConfig.accumulatorContractConfig)
 	const eventCacheService = new EventCacheService(storage, accumulatorContract, mergedConfig.eventCacheServiceConfig)
 	const ipfsResolver: IpfsResolver = new IpfsResolver(storage, mergedConfig.ipfsResolverConfig)

@@ -191,7 +191,8 @@ The light client is highly configurable via an optional `config` parameter. The 
 import { createLightClient } from 'cid-accumulator-client'
 
 const config = {
-  dbPath: "./db/cid-accumulator-light-client.json",
+  nodeDbPath: "./db/cid-accumulator-light-client.json",
+  browserDbName: "cid-accumulator",
   accumulatorContractConfig: {
     accumulatorContractAddress: "0x8fA8C72c306f736701B3FC27976fAd25413fF5bF"
     ethereumHttpRpcUrl: "https://ethereum-rpc.publicnode.com"
@@ -221,6 +222,11 @@ const client = await createLightClient("0xYourEthereumAddress", config)
 await client.start()
 
 ```
+
+Both client factories accept separate storage settings for each environment:
+
+- `nodeDbPath` selects the database file in Node.js.
+- `browserDbName` selects the IndexedDB database in browsers. Its default remains `cid-accumulator`, so existing browser caches continue to work. Clients on the same browser origin share storage when they use the same name; choose distinct names for different chains or accumulator contracts.
 
 ## The Seeder
 
@@ -283,9 +289,11 @@ IPFS gateway URL
 IPFS pinner base URL
 --ipfsPinnerBaseUrl=http://127.0.0.1:5001/api/v0
 
-Path to the database file
---dbPath=./db/cid-accumulator-seeder.json
+Path to the Node database file
+--nodeDbPath=./db/cid-accumulator-seeder.json
 ```
+
+The seeder appends `-<accumulatorContractAddress>` to the Node database path.
 
 ### Run a seeder programmatically
 
@@ -309,7 +317,8 @@ You can also pass in a custom config to the seeder. The example below shows the 
 
 ```typescript
 const config: SeederConfigUserInput = {
-  dbPath: "./db/cid-accumulator-seeder.json",
+  nodeDbPath: "./db/cid-accumulator-seeder.json",
+  browserDbName: "cid-accumulator",
   accumulatorContractConfig: {
     accumulatorContractAddress: "0x8fA8C72c306f736701B3FC27976fAd25413fF5bF",
     ethereumHttpRpcUrl: "http://127.0.0.1:8545",

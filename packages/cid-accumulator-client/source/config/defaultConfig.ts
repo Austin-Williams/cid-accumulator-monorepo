@@ -109,7 +109,8 @@ export const defaultSyncCheckIntervalMs = 1 * 60 * 1000 // 60 seconds by default
 // CLIENTS
 // Light Client
 export const defaultLightClientConfig: Required<LightClientConfig> = {
-	dbPath: "./db/cid-accumulator-light-client.json",
+	nodeDbPath: "./db/cid-accumulator-light-client.json",
+	browserDbName: "cid-accumulator",
 	accumulatorContractConfig: defaultLightClientAccumulatorContractConfig,
 	eventCacheServiceConfig: defaultLightClientEventCacheServiceConfig,
 	ipfsResolverConfig: defaultLightClientIpfsResolverConfig,
@@ -117,7 +118,8 @@ export const defaultLightClientConfig: Required<LightClientConfig> = {
 
 // Seeder
 export const defaultSeederConfig: SeederConfig = {
-	dbPath: "./db/cid-accumulator-seeder.json",
+	nodeDbPath: "./db/cid-accumulator-seeder.json",
+	browserDbName: "cid-accumulator",
 	accumulatorContractConfig: defaultSeederAccumulatorContractConfig,
 	accountRegistryServiceConfig: defaultSeederAccountRegistryServiceConfig,
 	eventCacheServiceConfig: defaultSeederEventCacheServiceConfig,

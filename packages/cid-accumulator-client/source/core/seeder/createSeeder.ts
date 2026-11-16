@@ -26,7 +26,10 @@ export async function createSeeder(config?: SeederConfigUserInput): Promise<Seed
 	console.log(JSON.stringify(mergedConfig, null, 2))
 
 	// Create dependencies
-	const storage: Storage = new UniversalStorageAdapter(`${mergedConfig.dbPath}-${mergedConfig.accumulatorContractConfig.accumulatorContractAddress}`)
+	const storage: Storage = new UniversalStorageAdapter(
+		`${mergedConfig.nodeDbPath}-${mergedConfig.accumulatorContractConfig.accumulatorContractAddress}`,
+		mergedConfig.browserDbName
+	)
 	const accumulatorContract = new AccumulatorContract(mergedConfig.accumulatorContractConfig)
 	const accountRegistryService = new AccountRegistryService(
 		storage,

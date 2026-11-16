@@ -26,8 +26,8 @@ function deferred() {
 describe("shared JSON database storage", { concurrency: false, timeout: 10000 }, () => {
 	test("two light clients preserve both accounts' records in the shared file", async (t) => {
 		const { filePath } = await fixture(t)
-		const first = await createLightClient("0x" + "11".repeat(20), { dbPath: filePath })
-		const second = await createLightClient("0x" + "22".repeat(20), { dbPath: filePath })
+		const first = await createLightClient("0x" + "11".repeat(20), { nodeDbPath: filePath })
+		const second = await createLightClient("0x" + "22".repeat(20), { nodeDbPath: filePath })
 		// Only open storage; contract and polling services remain stopped.
 		await Promise.all([first.storage.init(), second.storage.init()])
 		await Promise.all(

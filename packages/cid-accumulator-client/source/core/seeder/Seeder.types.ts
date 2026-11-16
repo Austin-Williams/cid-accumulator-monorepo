@@ -3,7 +3,7 @@ import type { AccountRegistryServiceConfig } from "../../services/AccountRegistr
 import type { EventCacheServiceConfig } from "../../services/EventCacheService.types.js"
 import type { IpfsResolverConfig } from "../../ipfs/IpfsResolver.types.js"
 import type { IpfsPinnerConfig } from "../../ipfs/IpfsPinner.types.js"
-import type { Storage } from "../../storage/interface.js"
+import type { Storage, StorageConfig } from "../../storage/interface.js"
 import type { AccumulatorContract } from "../../ethereum/AccumulatorContract.js"
 import type { EventCacheService } from "../../services/EventCacheService.js"
 import type { AccountRegistryService } from "../../services/AccountRegistryService.js"
@@ -13,8 +13,7 @@ import type { DeepPartial } from "../../types/common.js"
 
 export interface SeederConfigUserInput extends DeepPartial<SeederConfig> {}
 
-export interface SeederConfig {
-	dbPath: string
+export interface SeederConfig extends StorageConfig {
 	accumulatorContractConfig: Required<AccumulatorContractConfig>
 	accountRegistryServiceConfig: Required<AccountRegistryServiceConfig>
 	eventCacheServiceConfig: Required<EventCacheServiceConfig>
