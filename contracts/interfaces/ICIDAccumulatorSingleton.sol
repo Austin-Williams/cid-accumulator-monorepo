@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.25;
+pragma solidity 0.8.38;
 
 interface ICIDAccumulatorSingleton {
     /// @notice Returns the packed MMR metadata bits and peaks for any account.
