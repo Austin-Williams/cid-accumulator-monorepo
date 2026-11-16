@@ -2,10 +2,9 @@
 import { sha256 } from "./hash.js"
 import * as dagCbor from "./dagCbor.js"
 import { CID } from "../ipfs/CID.js"
-import { EthereumAddress } from "../ethereum/EthereumAddress.js"
 import type { DagCborEncodedData } from "../ipfs/types.js"
 import type { CIDDataPair } from "../ipfs/types.js"
-import type { NormalizedLeafAppendedEvent, RawEthLog } from "../ethereum/events.types.js"
+import type { NormalizedLeafAppendedEvent } from "../ethereum/events.types.js"
 import type { AccumulatorMetadata, LeafRecord, PeakWithHeight } from "../mmr/types.js"
 
 interface Digest<Code, Size extends number = number> {
@@ -220,47 +219,5 @@ export function parseAccumulatorMetaBits(mmrMetaBits: bigint): AccumulatorMetada
 		leafCount,
 		previousInsertBlockNumber,
 		deployBlockNumber,
-	}
-}
-
-export async function parseLeafAppendedLog(log: RawEthLog): Promise<NormalizedLeafAppendedEvent> {
-	// Parse indexed account from topic
-	const topicAccount = log.topics[1]
-	const account = EthereumAddress.fromString("0x" + topicAccount.slice(-40))
-
-	// Data field parsing
-	const data = log.data.startsWith("0x") ? log.data.slice(2) : log.data
-
-	// Static fields: leafIndex and previousInsertBlockNumber
-	const leafIndex = parseInt(data.slice(0, 64), 16)
-	const previousInsertBlockNumber = parseInt(data.slice(64, 128), 16)
-
-	// Offsets for dynamic fields (payload, mergeLeftHashes)
-	const payloadOffset = parseInt(data.slice(128, 192), 16) * 2
-	const mergeLeftHashesOffset = parseInt(data.slice(192, 256), 16) * 2
-
-	// payload: at payloadOffset, first 32 bytes = length, then bytes
-	const payloadLen = parseInt(data.slice(payloadOffset, payloadOffset + 64), 16)
-	const payloadHex = data.slice(payloadOffset + 64, payloadOffset + 64 + payloadLen * 2)
-	const payload = hexStringToUint8Array(payloadHex)
-
-	// mergeLeftHashes: at mergeLeftHashesOffset, first 32 bytes = length, then array of bytes32
-	const mergeLeftHashesLen = parseInt(data.slice(mergeLeftHashesOffset, mergeLeftHashesOffset + 64), 16)
-	const mergeLeftHashes: Uint8Array[] = []
-	let cursor = mergeLeftHashesOffset + 64
-	for (let i = 0; i < mergeLeftHashesLen; i++) {
-		const hashHex = data.slice(cursor, cursor + 64)
-		mergeLeftHashes.push(hexStringToUint8Array(hashHex))
-		cursor += 64
-	}
-	const mergeLeftHashesAsCIDs = await Promise.all(mergeLeftHashes.map((input) => contractPeakHexToMmrCid(input)))
-
-	return {
-		account,
-		leafIndex,
-		previousInsertBlockNumber,
-		payload,
-		mergeLeftHashes: mergeLeftHashesAsCIDs,
-		blockNumber: Number(log.blockNumber),
 	}
 }

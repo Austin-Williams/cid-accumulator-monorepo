@@ -78,44 +78,50 @@ export function parseAccumulatorMetaBits(mmrMetaBits: bigint): AccumulatorMetada
 }
 
 export async function parseLeafAppendedLog(log: RawEthLog): Promise<NormalizedLeafAppendedEvent> {
-	// Helper to parse a 32-byte hex as uint32 (big-endian)
-	// Data field parsing
 	const data = log.data.startsWith("0x") ? log.data.slice(2) : log.data
-
-	// leafIndex: first 32 bytes (offset 0)
-	const leafIndex = parseInt(data.slice(0, 64), 16)
-	// previousInsertBlockNumber: next 32 bytes (offset 32)
-	const previousInsertBlockNumber = parseInt(data.slice(64, 128), 16)
-
-	// Offsets for dynamic fields (payload, mergeLeftHashes)
-	const payloadOffset = parseInt(data.slice(128, 192), 16) * 2
-	const mergeLeftHashesOffset = parseInt(data.slice(192, 256), 16) * 2
-
-	// payload: at payloadOffset, first 32 bytes = length, then bytes
-	const payloadLen = parseInt(data.slice(payloadOffset, payloadOffset + 64), 16)
-	const payloadHex = data.slice(payloadOffset + 64, payloadOffset + 64 + payloadLen * 2)
-	const payload = hexStringToUint8Array(payloadHex)
-
-	// mergeLeftHashes: at mergeLeftHashesOffset, first 32 bytes = length, then array of bytes32
-	const mergeLeftHashesLen = parseInt(data.slice(mergeLeftHashesOffset, mergeLeftHashesOffset + 64), 16)
-	const mergeLeftHashes: Uint8Array[] = []
-	let mergeLeftHashesCursor = mergeLeftHashesOffset + 64
-	for (let i = 0; i < mergeLeftHashesLen; i++) {
-		const hexStr = data.slice(mergeLeftHashesCursor, mergeLeftHashesCursor + 64)
-		mergeLeftHashes.push(hexStringToUint8Array(hexStr))
-		mergeLeftHashesCursor += 64
+	if (data.length < 256 || data.length % 2 !== 0 || /[^0-9a-fA-F]/.test(data)) {
+		throw new Error("Invalid LeafAppended ABI data")
 	}
-	const mergeLeftHashesAsCIDs: CID<unknown, 113, 18, 1>[] = await Promise.all(
-		mergeLeftHashes.map(async (input) => contractPeakHexToMmrCid(input))
-	)
+	const byteLength = BigInt(data.length / 2)
+	const readWord = (offset: number): bigint => BigInt("0x" + data.slice(offset * 2, (offset + 32) * 2))
+	const readOffset = (headOffset: number): number => {
+		const offset = readWord(headOffset)
+		if (offset < 128n || offset % 32n !== 0n || offset > byteLength - 32n) {
+			throw new Error("Invalid LeafAppended ABI offset")
+		}
+		return Number(offset)
+	}
+
+	// Validate complete uint256 offsets and lengths before allocating decoded data.
+	const payloadOffset = readOffset(64)
+	const mergeLeftHashesOffset = readOffset(96)
+	const payloadLen = readWord(payloadOffset)
+	const mergeLeftHashesLen = readWord(mergeLeftHashesOffset)
+	const paddedPayloadLen = ((payloadLen + 31n) / 32n) * 32n
+	if (BigInt(payloadOffset) + 32n + paddedPayloadLen > byteLength) {
+		throw new Error("Invalid LeafAppended payload length")
+	}
+	// Each merge consumes a peak; the contract's five-bit peak count is at most 31.
+	if (mergeLeftHashesLen > 31n || BigInt(mergeLeftHashesOffset) + 32n + mergeLeftHashesLen * 32n > byteLength) {
+		throw new Error("Invalid LeafAppended merge hash count")
+	}
+
+	const payloadStart = (payloadOffset + 32) * 2
+	const payload = hexStringToUint8Array(data.slice(payloadStart, payloadStart + Number(payloadLen) * 2))
+	const mergeLeftHashes: CID<unknown, 113, 18, 1>[] = []
+	const mergeCount = Number(mergeLeftHashesLen)
+	for (let i = 0; i < mergeCount; i++) {
+		const start = (mergeLeftHashesOffset + 32 + i * 32) * 2
+		mergeLeftHashes.push(contractPeakHexToMmrCid(hexStringToUint8Array(data.slice(start, start + 64))))
+	}
 
 	return {
 		// Account is the first indexed topic (topic[1])
 		account: EthereumAddress.fromString("0x" + log.topics[1].slice(26)),
-		leafIndex,
+		leafIndex: Number(readWord(0)),
 		payload,
-		previousInsertBlockNumber,
-		mergeLeftHashes: mergeLeftHashesAsCIDs,
+		previousInsertBlockNumber: Number(readWord(32)),
+		mergeLeftHashes,
 		blockNumber: Number(log.blockNumber),
 		...(log.blockHash === undefined ? {} : { blockHash: log.blockHash.toLowerCase() }),
 	}
