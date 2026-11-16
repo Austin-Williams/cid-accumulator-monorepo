@@ -76,7 +76,11 @@ library MetaBitsLib {
 		uint256 leafCount = (packedBits >> LEAF_COUNT_OFFSET) & LEAF_COUNT_MASK;
 
 		// clear + set carry height at peakCount*5
-		uint256 heightShift = (peakCount << 2) + peakCount;
+		uint256 heightShift;
+		unchecked {
+			// peakCount is a valid peak index (0..31), so the offset is at most 155.
+			heightShift = peakCount * 5;
+		}
 		uint256 heightMask = PEAK_COUNT_MASK << heightShift;
 		packedBits = (packedBits & ~heightMask) | (carryHeight << heightShift);
 
