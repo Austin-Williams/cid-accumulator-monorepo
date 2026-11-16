@@ -11,7 +11,7 @@
 		"clean": "rm -rf dist",
 		"prepare": "npm run build",
 		"lint": "eslint \"source/**/*.{ts,js}\"",
-		"seeder": "tsx ./source/core/seeder/runSeeder.ts"
+		"seeder": "tsx ./scripts/runSeeder.ts"
 	},
 	"devDependencies": {
 		"@types/node": "^18.19.87",
