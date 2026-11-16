@@ -4,7 +4,7 @@ This code enables all smart contracts (and all EOAs) to append arbitrary data to
 
 The CID accumulator trustlessly computes a CID (content identifier) that resolves over IPFS to a file containing **all data ever appended to their accumulator**.
 
-Users can make a single ETH RPC call to the `getRootCIDString(address account) external view returns (string memory)` function to get an IPFS CID, and then make a single call to an IPFS gateway (e.g. `https://dweb.link/ipfs/<CID>?format=car`) to acquire all data ever appended to their accumulator (as well as all additional data needed to locally verify that they have received the correct data).
+Users can make a single ETH RPC call to the `getRootCIDString(address account) external view returns (string memory)` function to get an IPFS CID, and then make a single call to an IPFS HTTP gateway (e.g. a local Kubo gateway at `http://127.0.0.1:8080/ipfs/<CID>?format=car`) to acquire all data ever appended to their accumulator (as well as all additional data needed to locally verify that they have received the correct data).
 
 It requires no trusted third parties or centralized services from start to finish. It is a fully decentralized system, completely aligned with cypherpunk values. It has no governance, no upgradability, no censorship, no unnecessary token, no "community", no non-profit "labs", no for-profit company, no rent-seeking, nothing. It is simply a free, open source tool to empower users.
 
@@ -89,7 +89,9 @@ Most data inserts require between 14k and 23.3k gas for execution. See below for
 
 To get the root CID for your account's data, call either the `getRootCID(address account) external view returns (bytes memory rawCIDv1)` function (for the raw CIDv1 byte sequence) or the `getRootCIDString(address account) external view returns (string memory)` (for the base32-encoded CID string).
 
-Then use that root CID to download the data from your IPFS gateway. For example: `https://dweb.link/ipfs/<rootCID>?format=car` or `http://127.0.0.1:8080/ipfs/<rootCID>?format=car`.
+Then use that root CID to download the data from your IPFS HTTP gateway. For example, with Kubo running locally: `http://127.0.0.1:8080/ipfs/<rootCID>?format=car`.
+
+To open a CID manually in a browser, use `https://inbrowser.link/ipfs/<rootCID>`. This gateway retrieves content through a browser service worker; programmatic clients need a local or hosted HTTP gateway.
 
 But what if that CID is not available on IPFS?
 
@@ -182,10 +184,12 @@ On `client.start()`, the light client will:
 - It will continue "walking backwards" through prior root CIDs until it can resolve one via the IPFS gateway (or else fully syncs from events).
 - Once fully synced, it will poll for new events to stay updated and notify any subscribers.
 
-It is assumed that most light client users will not be running their own node and will instead use a free-tier public RPC provider (e.g., Infura, Alchemy, etc.) and a public IPFS gateway (e.g., dweb.link). With that in mind, the client has been optimized to minimize the number and "weight" of RPC calls made to the Ethereum RPCs and IPFS gateways. It also has built-in rate limiting with automatic backoff and retries to prevent getting blocked by the public RPCs and gateways.
+Light clients can use a free-tier public Ethereum RPC provider (e.g., Infura, Alchemy, etc.) and a local or hosted IPFS HTTP gateway. With that in mind, the client has been optimized to minimize the number and "weight" of RPC calls made to the Ethereum RPCs and IPFS gateways. It also has built-in rate limiting with automatic backoff and retries to prevent getting blocked by the public RPCs and gateways.
 
 ### Configuration
 The light client is highly configurable via an optional `config` parameter. The example below shows the default configuration. Any or all of the options can be changed to suit your needs.
+
+The default IPFS endpoint requires Kubo running locally. To use a hosted HTTP gateway, set `ipfsResolverConfig.gatewayUrl` to an endpoint that serves raw blocks and CAR responses.
 
 ```typescript
 import { createLightClient } from 'cid-accumulator-client'
@@ -208,7 +212,7 @@ const config = {
     pollingIntervalMs: 12000,
   }
   ipfsResolverConfig: {
-    gatewayUrl: "https://dweb.link"
+    gatewayUrl: "http://127.0.0.1:8080"
     rateLimiterOptions: {
       intervalMs: 200,
       maxRetries: 3,

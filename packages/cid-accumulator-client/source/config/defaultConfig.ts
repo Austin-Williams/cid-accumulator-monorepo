@@ -39,7 +39,7 @@ export const defaultSeederAccumulatorContractConfig: AccumulatorContractConfig =
 }
 
 // IPFS GATEWAY (RESOLVER)
-export const defaultLightClientIpfsGatewayUrl = "https://dweb.link"
+export const defaultLightClientIpfsGatewayUrl = "http://127.0.0.1:8080"
 export const defaultSeederIpfsGatewayUrl = "http://127.0.0.1:8080"
 
 export const defaultLightClientIpfsGatewayRateLimiterOptions: Required<RateLimiterOptions> = {

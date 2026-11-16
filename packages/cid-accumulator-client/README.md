@@ -98,9 +98,11 @@ The client tracks the current tip and uses finalized blocks only to prune rollba
 
 On the first run with an older cache that has no block-hash checkpoints, the client validates its cached prefix against finalized state and refetches unverified data. Interrupted recovery resumes before cached data is exposed. Services sharing a database coordinate recovery within one JavaScript context; independently running processes or browser tabs should use separate database namespaces.
 
-Most light client users are not expected to run their own Ethereum node; instead, they will likely use a free-tier public RPC provider (e.g., Infura, Alchemy) and a public IPFS gateway (e.g., dweb.link). With that in mind, the client has been optimized to minimize the number and "weight" of RPC calls made to Ethereum and IPFS gateways. It also includes built-in rate limiting with automatic back-off and retries to prevent being blocked by public RPCs and gateways.
+Light clients can use a free-tier public Ethereum RPC provider (e.g., Infura, Alchemy) and a local or hosted IPFS HTTP gateway. With that in mind, the client has been optimized to minimize the number and "weight" of RPC calls made to Ethereum and IPFS gateways. It also includes built-in rate limiting with automatic back-off and retries to prevent being blocked by public RPCs and gateways.
 
 The light client is highly configurable via an optional `config` parameter. The example below shows the default configuration. Any or all of the options can be customized to suit your needs.
+
+The default IPFS endpoint requires Kubo running locally. To use a hosted HTTP gateway, set `ipfsResolverConfig.gatewayUrl` to an endpoint that serves raw blocks and CAR responses. For manual browser access, use [inbrowser.link](https://inbrowser.link); it retrieves content through a browser service worker and cannot serve as this client's HTTP endpoint.
 
 ```typescript
 import { createLightClient } from 'cid-accumulator-client'
@@ -123,7 +125,7 @@ const config = {
     pollingIntervalMs: 12000,
   }
   ipfsResolverConfig: {
-    gatewayUrl: "https://dweb.link"
+    gatewayUrl: "http://127.0.0.1:8080"
     rateLimiterOptions: {
       intervalMs: 200,
       maxRetries: 3,
