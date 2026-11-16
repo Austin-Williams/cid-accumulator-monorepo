@@ -82,7 +82,7 @@ export class IpfsResolver implements LifecycleComponent {
 			return await this.rateLimiter.execute(fetchBlock)
 		} catch (error: unknown) {
 			if (error instanceof Error && error.name === "AbortError") {
-				this.logger.warn(`Fetch timed out after 5000ms for ${url}`)
+				this.logger.warn(`Block fetch timed out after 5000ms for CID ${cid.toString()}`)
 			} else {
 				this.logger.error(`Error fetching block ${cid.toString()}: ${error}`)
 			}
@@ -207,7 +207,7 @@ export class IpfsResolver implements LifecycleComponent {
 			return true
 		} catch (error: unknown) {
 			if ((error as any).name === "AbortError") {
-				this.logger.warn(`Fetch timed out for ${url}`)
+				this.logger.warn(`CAR fetch timed out after 15000ms for root CID ${rootCid.toString()}`)
 			} else {
 				this.logger.error(`Error fetching CAR file for root CID ${rootCid.toString()}: ${error}`)
 			}

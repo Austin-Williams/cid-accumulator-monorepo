@@ -22,9 +22,6 @@ export async function createSeeder(config?: SeederConfigUserInput): Promise<Seed
 	// Merge user config with default config (user config takes precedence)
 	const mergedConfig = mergeConfigWithDefaults(config, defaultSeederConfig)
 
-	console.log("\n==== Seeder Configuration ====")
-	console.log(JSON.stringify(mergedConfig, null, 2))
-
 	// Create dependencies
 	const storage: Storage = new UniversalStorageAdapter(
 		`${mergedConfig.nodeDbPath}-${mergedConfig.accumulatorContractConfig.accumulatorContractAddress}`,

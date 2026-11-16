@@ -8,16 +8,30 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { defaultSeederConfig } from "../source/config/defaultConfig.js"
 import type { SeederConfig } from "../source/core/seeder/Seeder.types.js"
+import { mergeConfigWithDefaults } from "../source/utils/mergeConfigs.js"
 
 const execFileAsync = promisify(execFile)
 const packageDirectory = fileURLToPath(new URL("../", import.meta.url))
 const runner = new URL("../scripts/runSeeder.ts", import.meta.url)
 const seederModule = new URL("../source/core/seeder/Seeder.ts", import.meta.url)
+const factoryModule = new URL("../source/core/seeder/createSeeder.ts", import.meta.url)
 
 async function runCli(args: string[], writeStorage = false): Promise<SeederConfig> {
 	// Exercise the actual entry point, stopping before networking, polling, or signal handlers start.
+	const marker = "TEST_CLI_CONFIG\n"
 	const bootstrap = `
+import { mock } from "node:test"
 import { Seeder } from ${JSON.stringify(seederModule.href)}
+import { createSeeder } from ${JSON.stringify(factoryModule.href)}
+mock.module(${JSON.stringify(factoryModule.href)}, {
+	namedExports: {
+		createSeeder: async (config) => {
+			const seeder = await createSeeder(config)
+			console.log(${JSON.stringify(marker)} + JSON.stringify(config))
+			return seeder
+		},
+	},
+})
 const stoppedBeforeStartup = new Error("Stop before starting seeder services")
 Seeder.prototype.start = async function () {
 	${writeStorage ? 'await this.dependencies.storage.put("cli:test", "stored")' : ""}
@@ -36,13 +50,12 @@ try {
 	delete env.NODE_PATH
 	const { stdout } = await execFileAsync(
 		process.execPath,
-		["--import", "tsx", "--input-type=module", "--eval", bootstrap, "--", ...args],
+		["--import", "tsx", "--experimental-test-module-mocks", "--input-type=module", "--eval", bootstrap, "--", ...args],
 		{ cwd: packageDirectory, env, timeout: 10000 }
 	)
-	const marker = "==== Seeder Configuration ====\n"
 	const offset = stdout.indexOf(marker)
-	assert.notEqual(offset, -1, "The runner must create the seeder and report its merged configuration")
-	return JSON.parse(stdout.slice(offset + marker.length))
+	assert.notEqual(offset, -1, "The runner must pass its configuration to the seeder factory")
+	return mergeConfigWithDefaults(JSON.parse(stdout.slice(offset + marker.length)), defaultSeederConfig)
 }
 
 describe("seeder CLI configuration", () => {
