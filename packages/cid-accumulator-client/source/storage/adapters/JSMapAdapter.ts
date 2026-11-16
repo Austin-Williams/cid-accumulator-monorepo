@@ -6,6 +6,7 @@ import type { Storage } from "../interface"
 export class JSMapAdapter implements Storage {
 	private store: Map<string, string> = new Map()
 	private filePath: string
+	private pendingWrite: Promise<void> = Promise.resolve()
 
 	constructor(filePath: string | undefined) {
 		this.filePath = filePath ?? "./db/cid-accumulator.json"
@@ -46,16 +47,37 @@ export class JSMapAdapter implements Storage {
 	}
 
 	async persist(): Promise<void> {
+		const write = this.pendingWrite.then(() => this.writeSnapshot())
+		// Report failures to this caller without blocking later writes or retries.
+		this.pendingWrite = write.catch(() => {})
+		await write
+	}
+
+	private async writeSnapshot(): Promise<void> {
 		const { promises: fs } = await import("fs")
-		const obj: Record<string, string> = Object.fromEntries(this.store)
-		// Ensure the directory exists before writing the file
 		const { dirname } = await import("path")
+		const { randomUUID } = await import("crypto")
+		// Capture the current state when this queued write starts.
+		const snapshot = JSON.stringify(Object.fromEntries(this.store))
 		await fs.mkdir(dirname(this.filePath), { recursive: true })
-		await fs.writeFile(this.filePath, JSON.stringify(obj), "utf8")
+
+		// Keep the temporary file on the same filesystem for atomic replacement.
+		const temporaryPath = `${this.filePath}.${randomUUID()}.tmp`
+		const file = await fs.open(temporaryPath, "wx", 0o600)
+		try {
+			try {
+				await fs.writeFile(file, snapshot, "utf8")
+			} finally {
+				await file.close()
+			}
+			await fs.rename(temporaryPath, this.filePath)
+		} finally {
+			await fs.rm(temporaryPath, { force: true })
+		}
 	}
 
 	async close(): Promise<void> {
-		// Persist to disk as JSON (for compatibility)
+		// Queue a final snapshot and wait for all earlier writes to finish.
 		await this.persist()
 	}
 

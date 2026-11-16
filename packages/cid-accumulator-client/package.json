@@ -11,6 +11,7 @@
 	"types": "./dist/index.d.ts",
 	"scripts": {
 		"build": "tsc --project tsconfig.json",
+		"test": "node --import tsx --test test/*.test.ts",
 		"clean": "rm -rf dist",
 		"prepare": "npm run build",
 		"lint": "eslint \"source/**/*.{ts,js}\"",
