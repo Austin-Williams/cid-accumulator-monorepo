@@ -102,41 +102,15 @@ library DagCborDigestLib {
 		assembly {
 			// ptr: pointer to start of buffer (free memory)
 			let ptr := mload(0x40)
-			// Write CBOR map header for map size 2 (major type 5, length 2)
-			mstore8(ptr, 0xa2)
-			// Store CBOR key "L": text string of length 1
-			mstore8(add(ptr, 1), 0x61) // text type + length=1
-			mstore8(add(ptr, 2), 0x4c) // ASCII 'L'
-			// Store CBOR tag for link (42)
-			mstore8(add(ptr, 3), 0xd8) // tag marker
-			mstore8(add(ptr, 4), 0x2a) // tag=42
-			// Byte-string header for 37-byte payload
-			mstore8(add(ptr, 5), 0x58) // byte string with 1-byte length
-			mstore8(add(ptr, 6), 0x25) // length=37
-			// Multihash prefix bytes
-			mstore8(add(ptr, 7), 0x00) // identity multibase
-			mstore8(add(ptr, 8), 0x01) // CIDv1
-			mstore8(add(ptr, 9), 0x71) // dag-cbor codec
-			mstore8(add(ptr, 10), 0x1b) // keccak-256 hash code
-			mstore8(add(ptr, 11), 0x20) // digest length 32 bytes
-			// Insert leftHash (32 bytes) into buffer
+			// Bytes 0..11: map(2), "L", tag(42), bytes(37), identity prefix, CIDv1/DAG-CBOR/Keccak-256.
+			// Left-align the 12-byte header; the digest write replaces the word's trailing zeros.
+			mstore(ptr, shl(160, 0xa2614cd82a58250001711b20))
+			// Bytes 12..43: left digest.
 			mstore(add(ptr, 12), leftHash)
-			// Store CBOR key "R": text string of length 1
-			mstore8(add(ptr, 44), 0x61) // text type + length=1
-			mstore8(add(ptr, 45), 0x52) // ASCII 'R'
-			// Store CBOR tag for link (42) again
-			mstore8(add(ptr, 46), 0xd8)
-			mstore8(add(ptr, 47), 0x2a)
-			// Byte-string header for 37-byte payload again
-			mstore8(add(ptr, 48), 0x58)
-			mstore8(add(ptr, 49), 0x25)
-			// Multihash prefix bytes repeated
-			mstore8(add(ptr, 50), 0x00)
-			mstore8(add(ptr, 51), 0x01)
-			mstore8(add(ptr, 52), 0x71)
-			mstore8(add(ptr, 53), 0x1b)
-			mstore8(add(ptr, 54), 0x20)
-			// Insert rightHash (32 bytes)
+			// Bytes 44..54: "R" and the same link header, without the map prefix.
+			// Left-align the 11-byte header before writing the right digest.
+			mstore(add(ptr, 44), shl(168, 0x6152d82a58250001711b20))
+			// Bytes 55..86: right digest.
 			mstore(add(ptr, 55), rightHash)
 			// Compute the Keccak-256 digest of the encoded link node
 			hash := keccak256(ptr, 87)
