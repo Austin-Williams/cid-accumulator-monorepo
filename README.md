@@ -136,7 +136,7 @@ await client.start()
 // You can now access the payload data using the following methods
 
 // Get the highest leaf index
-const highestLeafIndexNumber = await client.getHighestLeafIndex()
+const highestLeafIndexNumber = await client.getHighestIndex()
 
 // Get the ith payload as a hex string (no 0x prefix)
 const payloadHexString = await client.getPayload(i)
