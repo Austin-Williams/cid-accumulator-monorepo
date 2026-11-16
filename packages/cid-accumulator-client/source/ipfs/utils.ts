@@ -101,23 +101,14 @@ export async function postIpfsEmpty(
  * @returns Array of service names
  */
 export async function getRemotePinningServices(baseUrl: string): Promise<string[]> {
-	try {
-		// Get list of remote pinning services
-		const res = await postIpfsEmpty(baseUrl, "pin/remote/service/ls")
-
-		// Extract service names from response
-		if (res?.RemoteServices && Array.isArray(res.RemoteServices)) {
-			return res.RemoteServices.map((service: any) => service.Service)
-		} else {
-			console.warn("[IPFS] No remote pinning services found or invalid response format")
-			return []
-		}
-	} catch (error: unknown) {
-		// Log error but don't fail the overall operation
-		const errorMessage = error instanceof Error ? error.message : String(error)
-		console.error(`[IPFS] Error getting remote pinning services: ${errorMessage}`)
-		return []
+	const res = await postIpfsEmpty(baseUrl, "pin/remote/service/ls")
+	if (
+		!Array.isArray(res?.RemoteServices) ||
+		!res.RemoteServices.every((service: any) => typeof service?.Service === "string" && service.Service.length > 0)
+	) {
+		throw new Error("[IPFS] Invalid pin/remote/service/ls response: expected a RemoteServices list")
 	}
+	return res.RemoteServices.map((service: { Service: string }) => service.Service)
 }
 
 export async function verifyCIDAgainstDagCborEncodedData(

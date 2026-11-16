@@ -17,6 +17,7 @@ async function fixture(t: TestContext, remotePin = false) {
 		...defaultIpfsPinnerConfig,
 		baseUrl: "https://ipfs.example.test/api/v0",
 		remotePin,
+		remotePinningServiceRateLimiterOptions: { intervalMs: 0, maxRetries: 2, baseDelay: 0, capDelay: 0 },
 	})
 	// Even a server claiming the expected CID must not bypass validation before upload.
 	const fetch = t.mock.method(globalThis, "fetch", async () =>
@@ -73,13 +74,37 @@ describe("CID verification before reading or pinning blocks", { concurrency: fal
 	})
 
 	test("pinning verified bytes requires CID confirmation and succeeds on retry", async (t) => {
-		const f = await fixture(t)
+		const f = await fixture(t, true)
+		let localCID = f.block.cid.toString()
+		let remoteAdds = 0
+		let remoteAvailable = true
+		f.fetch.mock.mockImplementation(async (input) => {
+			const url = new URL(input instanceof Request ? input.url : input.toString())
+			switch (url.pathname) {
+				case "/api/v0/block/put":
+					return Response.json({ Key: localCID })
+				case "/api/v0/pin/remote/service/ls":
+					return Response.json({ RemoteServices: [{ Service: "test-pinner" }] })
+				case "/api/v0/pin/remote/ls":
+					return Response.json({})
+				case "/api/v0/pin/remote/add":
+					remoteAdds++
+					assert.equal(url.searchParams.get("arg"), localCID)
+					assert.equal(url.searchParams.get("service"), "test-pinner")
+					return remoteAdds === 1 || !remoteAvailable
+						? new Response("Temporarily unavailable", { status: 503 })
+						: Response.json({ Cid: localCID, Status: "queued" })
+				default:
+					throw new Error(`Unexpected HTTP request: ${url}`)
+			}
+		})
 		f.fetch.mock.mockImplementationOnce(
 			async () => new Response("<html>Sign in</html>", { headers: { "Content-Type": "text/html" } })
 		)
 		await assert.rejects(f.pinner.putAndPin(f.block, f.account), /Invalid block\/put response/)
+		assert.equal(f.fetch.mock.callCount(), 1)
 		await f.pinner.putAndPin(f.block, f.account)
-		assert.equal(f.fetch.mock.callCount(), 2)
+		assert.equal(remoteAdds, 2, "A transient remote failure must be retried before reporting success")
 		const [input, init] = f.fetch.mock.calls[1].arguments
 		assert.ok(input)
 		const url = new URL(input instanceof Request ? input.url : input.toString())
@@ -90,6 +115,14 @@ describe("CID verification before reading or pinning blocks", { concurrency: fal
 		const data = init.body.get("data")
 		assert.ok(data instanceof Blob)
 		assert.deepEqual(new Uint8Array(await data.arrayBuffer()), f.block.dagCborEncodedData)
+
+		localCID = f.differentBlock.cid.toString()
+		remoteAvailable = false
+		await assert.rejects(f.pinner.putAndPin(f.differentBlock, f.account))
+		assert.equal(remoteAdds, 5, "Remote failure must reach the caller after exhausting both retries")
+		remoteAvailable = true
+		await f.pinner.putAndPin(f.differentBlock, f.account)
+		assert.equal(remoteAdds, 6, "Exhaustion must allow a later attempt to recover")
 	})
 
 	for (const remotePin of [false, true]) {

@@ -59,6 +59,7 @@ export class IpfsPinner implements LifecycleComponent {
 
 		// Create a RemotePinningService instance for each remote pinning service
 		for (const serviceName of services) {
+			if (this.remotePinningServices.has(serviceName)) continue
 			const service = new RemotePinningService(this.storage, {
 				baseUrl: this.baseUrl,
 				serviceName,
@@ -77,6 +78,7 @@ export class IpfsPinner implements LifecycleComponent {
 	}
 
 	public stop(): void {
+		this.initialized = false
 		this.remotePinningServices.forEach((service, serviceName) => {
 			this.remotePinningServices.delete(serviceName)
 			service.rateLimiter.clearQueue()
@@ -120,25 +122,12 @@ export class IpfsPinner implements LifecycleComponent {
 		if (!this.initialized) await this.init()
 		if (this.remotePinningServices.size === 0) return
 
-		try {
-			// Process each service in parallel
-			await Promise.all(
-				Array.from(this.remotePinningServices.entries()).map(async ([serviceName, service]) => {
-					// Use the account as an optional name for the pin
-					const result = await service.pin(cid, `cid-accumulator-${account}`)
-
-					// If service should be skipped in the future, remove it from our services map
-					if (result.skipService) {
-						this.logger.warn(`Disabling remote pinning service '${serviceName}' due to non-retriable error`)
-						this.remotePinningServices.delete(serviceName)
-						service.rateLimiter.clearQueue()
-					}
-					return { serviceName, result }
-				})
-			)
-		} catch (error: unknown) {
-			// Log error but don't fail the overall operation	const errorMessage = error instanceof Error ? error.message : String(error)
-			this.logger.error(`Error during remote pinning: ${error}`)
-		}
+		await Promise.all(
+			Array.from(this.remotePinningServices.entries()).map(async ([serviceName, service]) => {
+				const result = await service.pin(cid, `cid-accumulator-${account}`)
+				// Retain failed services so a later retry cannot silently skip a configured destination.
+				if (!result.success) throw new Error(`[IpfsPinner] Remote pinning failed for service '${serviceName}'`)
+			})
+		)
 	}
 }

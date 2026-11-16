@@ -15,7 +15,7 @@ export class RemotePinningService {
 	private readonly serviceName: string
 	private readonly storage: Storage
 	public readonly rateLimiter: RateLimiter
-	private readonly pendingPins: Set<string> = new Set()
+	private readonly pendingPins = new Map<string, Promise<RemotePinningResult>>()
 
 	/**
 	 * Create a new RemotePinningService instance
@@ -129,7 +129,8 @@ export class RemotePinningService {
 	 * Perform the actual remote pinning operation
 	 * @param cid - The CID to pin
 	 * @param name - Optional name for the pin
-	 * @returns True if the pin was successful, false otherwise
+	 * @returns Whether the request was accepted, or a non-retriable failure result
+	 * @throws The last error when transient failures exhaust the retry budget
 	 */
 	private async sendRemotePinRequest(cid: CID<unknown, 113, 18, 1>, name: string): Promise<RemotePinningResult> {
 		const url = new URL(`${this.baseUrl}/pin/remote/add`)
@@ -137,62 +138,35 @@ export class RemotePinningService {
 		url.searchParams.append("service", this.serviceName)
 		url.searchParams.append("name", name)
 		url.searchParams.append("background", "true")
-		const result: RemotePinningResult = await this.rateLimiter.execute(async () => {
+		return this.rateLimiter.execute(async () => {
+			let responseStatus: number | undefined
 			try {
 				const response = await fetch(url.toString(), { method: "POST" })
-
-				// Check if the request was successful
-				if (response.ok) {
-					this.pendingPins.delete(cid.toString())
-					return { success: true, skipService: false }
-				} else {
-					// Try to read the error response for more details
-					let errorDetails = response.statusText
-					try {
-						const text = await response.text()
-						if (text && text.trim() !== "") {
-							errorDetails += ` - ${text}`
-						}
-					} catch (readError) {
-						// Ignore read errors
-					}
-
-					this.logger.warn(`Failed to pin CID ${cid.toString()} on remote service ${this.serviceName}: ${errorDetails}`)
-					this.pendingPins.delete(cid.toString())
-					return { success: false, skipService: false }
-				}
+				responseStatus = response.status
+				// background=true confirms submission, not completed remote pinning.
+				if (response.ok) return { success: true, skipService: false }
+				const details = await response.text().catch(() => "")
+				throw new Error(
+					`IPFS pin/remote/add failed for ${this.serviceName}: ${response.status} ${response.statusText} ${details}`
+				)
 			} catch (error) {
-				// There are three cases of error messages we need to handle differently
 				const errorMessage = error instanceof Error ? error.message : String(error)
 				const errorCheck = checkIpfsNonRetriableError(errorMessage)
-				this.logger.warn(`errorMessage: ${errorMessage}, errorCheck: ${JSON.stringify(errorCheck)}`)
 
-				// If the error is "already pinned", we can consider this a success and update storage
+				// This also includes requests already queued. Only a confirmed "pinned" status is persisted.
 				if (errorCheck.isNonRetriable && errorCheck.errorType === "already_pinned") {
-					// Mark as pinned in storage
-					await this.storage.put(this.getPinKey(cid), "true")
-					this.pendingPins.delete(cid.toString())
 					return { success: true, skipService: false }
 				}
 
-				// For other non-retriable errors, suggest skipping this remote pinning service in the future
-				if (errorCheck.isNonRetriable) {
-					this.logger.warn(
-						`Non-retriable error pinning CID ${cid.toString()}: ${errorMessage} (errorType: ${errorCheck.errorType
-						}). Consider removing this remote pinning service.`
-					)
-					this.pendingPins.delete(cid.toString())
+				if (errorCheck.isNonRetriable || responseStatus === 401 || responseStatus === 403) {
+					this.logger.warn(`Non-retriable remote pinning failure: ${errorMessage}`)
 					return { success: false, skipService: true }
 				}
 
-				// For retriable errors, don't skip the service but report failure
-				this.logger.warn(`Retriable error pinning CID ${cid.toString()}: ${errorMessage}`)
-				this.pendingPins.delete(cid.toString())
-				return { success: false, skipService: false }
+				// Rejections, rather than failure result objects, activate the rate limiter's retries.
+				throw error
 			}
 		})
-		this.pendingPins.delete(cid.toString())
-		return result
 	}
 
 	/**
@@ -200,20 +174,20 @@ export class RemotePinningService {
 	 * @param cid - The CID to pin
 	 * @param name - Optional name for the pin
 	 * @returns A result object indicating success or failure
+	 * @throws When transient failures exhaust the retry budget, or storage fails
 	 */
-	async pin(cid: CID<unknown, 113, 18, 1>, name: string): Promise<RemotePinningResult> {
-		// Check if this CID is already being processed by another request
-		if (this.pendingPins.has(cid.toString())) {
-			this.logger.log(`CID ${cid.toString()}, pin already in progress, skipping duplicate request.`)
-			return { success: true, skipService: false }
-		} else {
-			// Add this CID to the pending set to prevent duplicate requests
-			this.pendingPins.add(cid.toString())
-		}
+	pin(cid: CID<unknown, 113, 18, 1>, name: string): Promise<RemotePinningResult> {
+		const key = cid.toString()
+		const pending = this.pendingPins.get(key)
+		if (pending) return pending
+		const pin = this.pinOnce(cid, name).finally(() => this.pendingPins.delete(key))
+		this.pendingPins.set(key, pin)
+		return pin
+	}
 
+	private async pinOnce(cid: CID<unknown, 113, 18, 1>, name: string): Promise<RemotePinningResult> {
 		// Check if we've already marked this as pinned in storage
 		if (await this.isAlreadyPinnedInStorage(cid)) {
-			this.pendingPins.delete(cid.toString())
 			return { success: true, skipService: false }
 		}
 
@@ -223,21 +197,17 @@ export class RemotePinningService {
 		if (remotePinnedStatus === "pinned") {
 			// The CID has already been remote-pinned, let's indicate that in storage
 			await this.storage.put(this.getPinKey(cid), "true")
-			// Remove from pending set since we're finished with this CID
-			this.pendingPins.delete(cid.toString())
 			return { success: true, skipService: false }
 		}
 
 		if (remotePinnedStatus === "pinning" || remotePinnedStatus === "queued") {
 			// The CID is already not yet remote-pinned, but is being processed by the remote pinner
-			this.pendingPins.delete(cid.toString())
 			return { success: true, skipService: false }
 		}
 
 		// If we get here, the CID is not pinned, so we need to pin it
 		// Remote pinning requests take a long time to complete, so we don't wait for them to finish
-		await this.sendRemotePinRequest(cid, name)
-		return { success: true, skipService: false }
+		return this.sendRemotePinRequest(cid, name)
 	}
 }
 
@@ -251,11 +221,9 @@ export class RemotePinningService {
 export function checkIpfsNonRetriableError(errorMessage: string): IpfsErrorCheckResult {
 	// Common error messages that indicate a CID is already pinned
 	const alreadyPinnedPatterns = [
-		/DUPLICATE_OBJECT/i, // Specific case for Pinata
 		/already pinned/i, // Generic case
 		/Pin.already_pinned/i, // IPFS 0.5+
 		/CID already pinned/i, // Another variant
-		/already exists/i, // Another variant
 		/already being pinned/i, // For pins in progress
 		/already in pin queue/i, // For queued pins
 	]
