@@ -20,7 +20,7 @@ import { EventCacheService } from "../source/services/EventCacheService.js"
 import { PinningService } from "../source/services/PinningService.js"
 import { InMemoryAdapter } from "../source/storage/adapters/InMemoryAdapter.js"
 
-type State = Awaited<ReturnType<AccumulatorContract["getState"]>>
+type State = Awaited<ReturnType<AccumulatorContract["getCIDAccumulatorState"]>>
 type BranchBlock = { block: ChainBlock; payloads: number[]; state: State; logs: NormalizedLeafAppendedEvent[] }
 
 function deferred() {
@@ -110,7 +110,7 @@ async function fixture(t: TestContext, startEmpty = false) {
 			(typeof block === "number" ? canonical(block) : block === "finalized" ? genesis : tip).block
 	)
 	t.mock.method(contract, "getBlockByHash", async (hash: string) => history.get(hash)!.block)
-	t.mock.method(contract, "getState", async (reference: BlockReference = "latest") => {
+	t.mock.method(contract, "getCIDAccumulatorState", async (reference: BlockReference = "latest") => {
 		const selected = typeof reference === "object" ? history.get(reference.blockHash)! : tip
 		if (typeof reference === "object") assert.equal(canonical(selected.block.number).block.hash, reference.blockHash)
 		return selected.state
@@ -319,19 +319,19 @@ test("an empty accumulator follows its first append and refreshes history after 
 	await f.tick()
 	await f.client.sync()
 	assert.equal(await f.client.getPayload(0), payloadHex(9))
-	assert.equal((await f.contract.getState()).meta.deployBlockNumber, 2)
+	assert.equal((await f.contract.getCIDAccumulatorState()).meta.deployBlockNumber, 2)
 
 	await f.append(undefined, emptyBlock)
 	await f.tick()
 	await f.client.sync()
 	assert.equal(await f.client.getHighestIndex(), -1)
-	assert.equal((await f.contract.getState()).meta.deployBlockNumber, 0)
+	assert.equal((await f.contract.getCIDAccumulatorState()).meta.deployBlockNumber, 0)
 
 	await f.append(10)
 	await f.tick()
 	await f.client.sync()
 	await f.events.syncEventsUpToLatestBlock()
-	assert.equal((await f.contract.getState()).meta.deployBlockNumber, 3)
+	assert.equal((await f.contract.getCIDAccumulatorState()).meta.deployBlockNumber, 3)
 	assert.equal(await f.client.getPayload(0), payloadHex(10))
 	assert.deepEqual((await f.events.getLeafRecords(2, 3)).map(event => event.blockNumber), [3])
 })

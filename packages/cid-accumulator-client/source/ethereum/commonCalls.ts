@@ -110,14 +110,14 @@ export async function getBlockNumber(ethereumHttpRpcUrl: string): Promise<number
 }
 
 /** Fetch this accumulator's state, including its first-append birthday. */
-export async function getState(params: {
+export async function getCIDAccumulatorState(params: {
 	ethereumHttpRpcUrl: string
 	contractAddress: EthereumAddress
 	block?: BlockReference
 }): Promise<{ meta: AccumulatorMetadata; peaks: PeakWithHeight[] }> {
 	const { ethereumHttpRpcUrl, contractAddress, block = "latest" } = params
 	const result: string = await callContractView(
-		ethereumHttpRpcUrl, contractAddress.toString(), getSelector("getState()"), block
+		ethereumHttpRpcUrl, contractAddress.toString(), getSelector("getCIDAccumulatorState()"), block
 	)
 	// A rollback may precede deployment of the application. An empty return by itself
 	// is not proof of that: verify code at exactly the same historical block.

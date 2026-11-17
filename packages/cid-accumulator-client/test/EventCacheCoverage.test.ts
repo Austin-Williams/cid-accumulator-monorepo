@@ -31,7 +31,7 @@ function fixture(t: TestContext) {
 	let head = 9
 	mockChain(t, contract, storage)
 	t.mock.method(contract, "getBlockNumber", async () => head)
-	t.mock.method(contract, "getState", async () => ({
+	t.mock.method(contract, "getCIDAccumulatorState", async () => ({
 		meta: {
 			leafCount: logs.filter(event => event.blockNumber <= head).length,
 			peakCount: 0,

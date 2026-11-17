@@ -110,7 +110,7 @@ describe("historical CID reconstruction", { concurrency: false, timeout: 5000 },
 			const account = new EthereumAddress("0x" + "11".repeat(20))
 			const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: account })
 			mockChain(t, contract, storage)
-			t.mock.method(contract, "getState", async () => ({
+			t.mock.method(contract, "getCIDAccumulatorState", async () => ({
 				meta: {
 					leafCount,
 					peakCount: states[leafCount].peaks.length,

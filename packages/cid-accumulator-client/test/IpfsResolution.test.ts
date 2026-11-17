@@ -220,7 +220,7 @@ describe("complete IPFS tree resolution", { concurrency: false, timeout: 5000 },
 		const account = new EthereumAddress("0x" + "11".repeat(20))
 		const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: account })
 		mockChain(t, contract, f.storage)
-		t.mock.method(contract, "getState", async () => ({
+		t.mock.method(contract, "getCIDAccumulatorState", async () => ({
 			meta: { leafCount: 3, peakCount: 2, peakHeights: [1, 0], previousInsertBlockNumber: 3, deployBlockNumber: 1 },
 			peaks: [
 				{ cid: f.branch.cid, height: 1 },

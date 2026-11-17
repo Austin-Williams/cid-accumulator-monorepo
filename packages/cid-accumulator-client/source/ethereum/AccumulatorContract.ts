@@ -6,7 +6,7 @@ import {
 	getBlockNumber,
 	getChainId,
 	getLeafAppendedLogs,
-	getState,
+	getCIDAccumulatorState,
 } from "./commonCalls.js"
 
 import type { AccumulatorContractConfig } from "./AccumulatorContract.types.js"
@@ -56,8 +56,8 @@ export class AccumulatorContract implements LifecycleComponent {
 		return this.rateLimiter.execute(() => getBlockByHash(this.ethereumHttpRpcUrl, hash))
 	}
 
-	async getState(block: BlockReference = "latest"): Promise<{ meta: AccumulatorMetadata; peaks: PeakWithHeight[] }> {
-		return this.rateLimiter.execute(() => getState({
+	async getCIDAccumulatorState(block: BlockReference = "latest"): Promise<{ meta: AccumulatorMetadata; peaks: PeakWithHeight[] }> {
+		return this.rateLimiter.execute(() => getCIDAccumulatorState({
 			ethereumHttpRpcUrl: this.ethereumHttpRpcUrl,
 			contractAddress: this.address,
 			block,

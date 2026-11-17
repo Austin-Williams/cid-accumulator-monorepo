@@ -47,7 +47,7 @@ async function fixture(t: TestContext, pause: "sync" | "pin") {
 	})
 	const chain = new MerkleMountainRange()
 	const expected = new Set<string>()
-	t.mock.method(contract, "getState", async () => {
+	t.mock.method(contract, "getCIDAccumulatorState", async () => {
 		const heights = [...chain.leafCount.toString(2)].flatMap((bit, index, bits) =>
 			bit === "1" ? [bits.length - index - 1] : []
 		)

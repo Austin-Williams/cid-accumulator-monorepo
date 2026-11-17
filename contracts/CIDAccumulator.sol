@@ -33,13 +33,13 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 	}
 
 	/// @inheritdoc ICIDAccumulator
-	function getState() external view override returns (uint256, bytes32[32] memory) {
+	function getCIDAccumulatorState() external view override returns (uint256, bytes32[32] memory) {
 		CIDAccumulatorStorage storage state = _getAccumulatorStorage();
 		return (state.mmrMetaBits, state.peaks);
 	}
 
 	/// @inheritdoc ICIDAccumulator
-	function getRootCIDString() external view override returns (string memory) {
+	function getCIDAccumulatorRootCIDString() external view override returns (string memory) {
 		CIDAccumulatorStorage storage state = _getAccumulatorStorage();
 		bytes32 root = MmrLib.bagPeaks(state.mmrMetaBits.getPeakCount(), state.peaks);
 		return root.encodeCidString();

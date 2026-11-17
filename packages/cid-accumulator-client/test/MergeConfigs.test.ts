@@ -109,13 +109,13 @@ describe("factory address configuration", { concurrency: false, timeout: 5000 },
 						: (await createSeeder(config)).dependencies.accumulatorContract
 				t.after(() => contract.stop())
 				assert.equal(fetch.mock.callCount(), 0)
-				assert.equal((await contract.getState()).meta.deployBlockNumber, 123)
+				assert.equal((await contract.getCIDAccumulatorState()).meta.deployBlockNumber, 123)
 				assert.equal(fetch.mock.callCount(), 1)
 				const [url, init] = fetch.mock.calls[0].arguments
 				assert.equal(url, ethereumHttpRpcUrl)
 				const request = JSON.parse(String(init?.body))
 				assert.equal(request.method, "eth_call")
-				assert.equal(request.params[0].data, getSelector("getState()"))
+				assert.equal(request.params[0].data, getSelector("getCIDAccumulatorState()"))
 				assert.equal(
 					request.params[0].to,
 					address.toString()

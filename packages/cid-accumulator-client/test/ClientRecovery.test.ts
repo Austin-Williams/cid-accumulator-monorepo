@@ -20,7 +20,7 @@ import { JSMapAdapter } from "../source/storage/adapters/JSMapAdapter.js"
 import type { Storage } from "../source/storage/interface.js"
 import type { LifecycleComponent } from "../source/types/common.js"
 
-type State = Awaited<ReturnType<AccumulatorContract["getState"]>>
+type State = Awaited<ReturnType<AccumulatorContract["getCIDAccumulatorState"]>>
 
 function emptyState(): State {
 	return {
@@ -49,7 +49,7 @@ function fixture(t: TestContext, storage: Storage = new InMemoryAdapter()) {
 	const eventCache = new EventCacheService(storage, contract, defaultLightClientEventCacheServiceConfig)
 	const resolver = new IpfsResolver(storage, defaultLightClientIpfsResolverConfig)
 	let stateProvider: () => Promise<State> = async () => emptyState()
-	const getState = t.mock.method(contract, "getState", () => stateProvider())
+	const getCIDAccumulatorState = t.mock.method(contract, "getCIDAccumulatorState", () => stateProvider())
 	const getBlock = t.mock.method(contract, "getBlockNumber", async () => 1)
 	const client = new LightClient({
 		storage,
@@ -84,7 +84,7 @@ function fixture(t: TestContext, storage: Storage = new InMemoryAdapter()) {
 		contract,
 		eventCache,
 		resolver,
-		getState,
+		getCIDAccumulatorState,
 		getBlock,
 		stops,
 		setStateProvider: (provider: () => Promise<State>) => {
@@ -95,7 +95,7 @@ function fixture(t: TestContext, storage: Storage = new InMemoryAdapter()) {
 
 describe("client failure recovery", { concurrency: false, timeout: 5000 }, () => {
 	test("a failed sync releases its state and can be retried", async (t) => {
-		const { client, getState, setStateProvider } = fixture(t)
+		const { client, getCIDAccumulatorState, setStateProvider } = fixture(t)
 		const error = new Error("RPC unavailable")
 		setStateProvider(async () => {
 			throw error
@@ -106,14 +106,14 @@ describe("client failure recovery", { concurrency: false, timeout: 5000 }, () =>
 
 		setStateProvider(async () => emptyState())
 		await client.sync()
-		assert.equal(getState.mock.callCount(), 2)
+		assert.equal(getCIDAccumulatorState.mock.callCount(), 2)
 		assert.equal(client.syncing, false)
 		assert.equal(client.completedInitialSync, true)
 	})
 
 	for (const outcome of ["success", "failure"] as const) {
 		test(`concurrent sync callers share one RPC request and its ${outcome}`, { timeout: 1000 }, async (t) => {
-			const { client, getState, setStateProvider } = fixture(t)
+			const { client, getCIDAccumulatorState, setStateProvider } = fixture(t)
 			const response = deferred<State>()
 			const error = new Error("RPC unavailable")
 			setStateProvider(() => response.promise)
@@ -125,13 +125,13 @@ describe("client failure recovery", { concurrency: false, timeout: 5000 }, () =>
 				assert.equal(result.status, outcome === "success" ? "fulfilled" : "rejected")
 				if (result.status === "rejected") assert.equal(result.reason, error)
 			}
-			assert.equal(getState.mock.callCount(), 1)
+			assert.equal(getCIDAccumulatorState.mock.callCount(), 1)
 			assert.equal(client.syncing, false)
 			assert.equal(client.completedInitialSync, outcome === "success")
 
 			setStateProvider(async () => emptyState())
 			await client.sync()
-			assert.equal(getState.mock.callCount(), 2)
+			assert.equal(getCIDAccumulatorState.mock.callCount(), 2)
 		})
 	}
 
@@ -169,7 +169,7 @@ describe("client failure recovery", { concurrency: false, timeout: 5000 }, () =>
 	})
 
 	test("concurrent starts share sync failure, stop polling, and can start again", async (t) => {
-		const { client, getState, getBlock, setStateProvider, stops } = fixture(t)
+		const { client, getCIDAccumulatorState, getBlock, setStateProvider, stops } = fixture(t)
 		const setInterval = t.mock.method(globalThis, "setInterval")
 		const clearInterval = t.mock.method(globalThis, "clearInterval")
 		const error = new Error("Initial sync failed")
@@ -180,7 +180,7 @@ describe("client failure recovery", { concurrency: false, timeout: 5000 }, () =>
 			assert.equal(result.status, "rejected")
 			if (result.status === "rejected") assert.equal(result.reason, error)
 		}
-		assert.equal(getState.mock.callCount(), 1)
+		assert.equal(getCIDAccumulatorState.mock.callCount(), 1)
 		assert.equal(setInterval.mock.callCount(), 1)
 		assert.equal(clearInterval.mock.calls[0].arguments[0], setInterval.mock.calls[0].result)
 		assert.deepEqual(stops, ["resolver", "events", "contract", "storage"])
@@ -191,7 +191,7 @@ describe("client failure recovery", { concurrency: false, timeout: 5000 }, () =>
 
 		setStateProvider(async () => emptyState())
 		await client.start()
-		assert.equal(getState.mock.callCount(), 2)
+		assert.equal(getCIDAccumulatorState.mock.callCount(), 2)
 		assert.ok(getBlock.mock.callCount() >= 2)
 		assert.equal(client.running, true)
 		assert.equal(client.initialized, true)

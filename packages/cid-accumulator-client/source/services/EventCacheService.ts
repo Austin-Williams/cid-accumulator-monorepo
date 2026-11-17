@@ -294,7 +294,7 @@ export class EventCacheService implements LifecycleComponent {
 		const chain = await this.chain
 		const snapshot = await chain.snapshot()
 		const latestBlock = snapshot.block.number
-		const state = await this.accumulatorContract.getState({ blockHash: snapshot.block.hash, requireCanonical: true })
+		const state = await this.accumulatorContract.getCIDAccumulatorState({ blockHash: snapshot.block.hash, requireCanonical: true })
 		await chain.ensureCanonical(snapshot)
 		// An empty accumulator has no history; forward polling still catches its first append.
 		if (state.meta.leafCount === 0) return

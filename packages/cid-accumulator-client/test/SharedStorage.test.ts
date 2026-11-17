@@ -83,7 +83,7 @@ describe("shared JSON database storage", { concurrency: false, timeout: 10000 },
 		t.mock.method(clients[0].accumulatorContract, "getChainId", async () => { throw new Error("First provider stopped") })
 		t.mock.method(clients[0].accumulatorContract, "getBlock", async () => { throw new Error("First provider stopped") })
 		t.mock.method(peer.accumulatorContract, "getBlock", async () => blockHeader(0))
-		t.mock.method(peer.accumulatorContract, "getState", async () => ({
+		t.mock.method(peer.accumulatorContract, "getCIDAccumulatorState", async () => ({
 			meta: { leafCount: 0, peakCount: 0, peakHeights: [], previousInsertBlockNumber: 0, deployBlockNumber: 0 },
 			peaks: [],
 		}))

@@ -54,7 +54,7 @@ function fixture(t: TestContext) {
 	const subscriptions = t.mock.method(client, "subscribe")
 	const pinner = new IpfsPinner(storage, defaultIpfsPinnerConfig)
 	const chain = new MerkleMountainRange()
-	t.mock.method(contract, "getState", async () => {
+	t.mock.method(contract, "getCIDAccumulatorState", async () => {
 		const heights = [...chain.leafCount.toString(2)].flatMap((bit, index, bits) =>
 			bit === "1" ? [bits.length - index - 1] : []
 		)

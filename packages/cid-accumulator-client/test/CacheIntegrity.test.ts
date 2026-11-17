@@ -54,7 +54,7 @@ async function fixture(t: TestContext, payloads: Uint8Array[]) {
 	const storage = new InMemoryAdapter()
 	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: account })
 	mockChain(t, contract, storage)
-	const getState = t.mock.method(contract, "getState", async () => state)
+	const getCIDAccumulatorState = t.mock.method(contract, "getCIDAccumulatorState", async () => state)
 	const getLogs = t.mock.method(contract, "getLeafAppendedLogs", async (from: number, to: number) =>
 		events.filter((event) => event.blockNumber >= from && event.blockNumber <= to)
 	)
@@ -76,7 +76,7 @@ async function fixture(t: TestContext, payloads: Uint8Array[]) {
 		account,
 		client,
 		storage,
-		getState,
+		getCIDAccumulatorState,
 		getLogs,
 		resolve,
 		events,
@@ -116,7 +116,7 @@ describe("cached payload integrity", { concurrency: false, timeout: 5000 }, () =
 			await putLeafRecordInDB(f.storage, other, 0, { account: other, leafIndex: 0, payload: Uint8Array.of(99) })
 			await f.client.sync()
 			assert.equal(f.client.completedInitialSync, true)
-			assert.equal(f.getState.mock.callCount(), 1)
+			assert.equal(f.getCIDAccumulatorState.mock.callCount(), 1)
 			assert.equal(f.resolve.mock.callCount(), 0)
 			assert.equal(f.getLogs.mock.callCount(), 0)
 			for (const [index, payload] of payloads.entries())
@@ -143,7 +143,7 @@ describe("cached payload integrity", { concurrency: false, timeout: 5000 }, () =
 		await f.put(0, f.payloads[0])
 		await f.client.sync()
 		const replacement = await encodeBlock(Uint8Array.of(99))
-		f.getState.mock.mockImplementation(async () => ({ ...f.state, peaks: [{ cid: replacement.cid, height: 0 }] }))
+		f.getCIDAccumulatorState.mock.mockImplementation(async () => ({ ...f.state, peaks: [{ cid: replacement.cid, height: 0 }] }))
 		await rejectsIntegrity(f.client, /root/i)
 		assert.equal(await f.client.getPayload(0), "01")
 	})
@@ -221,11 +221,11 @@ describe("cached payload integrity", { concurrency: false, timeout: 5000 }, () =
 			assert.equal(results[0].reason, results[1].reason)
 		assert.equal(f.client.completedInitialSync, false)
 		assert.equal(f.client.syncing, false)
-		assert.equal(f.getState.mock.callCount(), 2)
+		assert.equal(f.getCIDAccumulatorState.mock.callCount(), 2)
 
 		await f.put(0, f.payloads[0])
 		await f.client.sync()
 		assert.equal(f.client.completedInitialSync, true)
-		assert.equal(f.getState.mock.callCount(), 3)
+		assert.equal(f.getCIDAccumulatorState.mock.callCount(), 3)
 	})
 })

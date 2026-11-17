@@ -69,7 +69,7 @@ function fixture(t: TestContext) {
 			peaks: chain.peaks.map((cid, index) => ({ cid, height: heights[index] })),
 		}
 	}
-	const getState = t.mock.method(contract, "getState", async () => state())
+	const getCIDAccumulatorState = t.mock.method(contract, "getCIDAccumulatorState", async () => state())
 	t.mock.method(contract, "getBlockNumber", async () => head)
 	const getLogs = t.mock.method(contract, "getLeafAppendedLogs", async (from: number, to: number) =>
 		logs.filter((event) => event.blockNumber >= from && event.blockNumber <= to)
@@ -145,7 +145,7 @@ function fixture(t: TestContext) {
 		storage,
 		events,
 		client,
-		getState,
+		getCIDAccumulatorState,
 		getLogs,
 		state,
 		subscriptions,
@@ -177,10 +177,10 @@ describe("seeder restart catch-up", { concurrency: false, timeout: 5000 }, () =>
 		await f.assertFullyPinned()
 		f.seeder.stop()
 		const missed = await f.append(new Uint8Array(32).fill(3))
-		const stateCalls = f.getState.mock.callCount()
+		const stateCalls = f.getCIDAccumulatorState.mock.callCount()
 		await f.seeder.start()
 		await f.assertFullyPinned()
-		assert.ok(f.getState.mock.callCount() > stateCalls, "Retained clients need a fresh contract snapshot")
+		assert.ok(f.getCIDAccumulatorState.mock.callCount() > stateCalls, "Retained clients need a fresh contract snapshot")
 		assert.equal(await f.storage.get("events:latestPolledBlock"), String(missed.blockNumber))
 		assert.ok(
 			f.getLogs.mock.calls.some(({ arguments: [from, to] }) => from <= missed.blockNumber && to >= missed.blockNumber)
@@ -206,21 +206,21 @@ describe("seeder restart catch-up", { concurrency: false, timeout: 5000 }, () =>
 		f.seeder.stop()
 		await f.storage.delete("events:latestPolledBlock")
 		await f.append(new Uint8Array(32).fill(2))
-		const stateCalls = f.getState.mock.callCount()
+		const stateCalls = f.getCIDAccumulatorState.mock.callCount()
 		await f.seeder.start()
 		await f.assertFullyPinned()
-		assert.equal(f.getState.mock.callCount(), stateCalls + 1)
+		assert.equal(f.getCIDAccumulatorState.mock.callCount(), stateCalls + 1)
 	})
 
 	test("repeated start calls do not resync or duplicate subscriptions and pin attempts", async (t) => {
 		const f = fixture(t)
 		await f.append(new Uint8Array(32).fill(1))
 		await f.seeder.start()
-		const stateCalls = f.getState.mock.callCount()
+		const stateCalls = f.getCIDAccumulatorState.mock.callCount()
 		const intervalCalls = f.intervals.mock.callCount()
 		const pinCalls = f.pins.mock.callCount()
 		await Promise.all([f.seeder.start(), f.seeder.start()])
-		assert.equal(f.getState.mock.callCount(), stateCalls)
+		assert.equal(f.getCIDAccumulatorState.mock.callCount(), stateCalls)
 		assert.equal(f.intervals.mock.callCount(), intervalCalls)
 		assert.equal(f.pins.mock.callCount(), pinCalls)
 		assert.equal(f.subscriptions.mock.callCount(), 1)
@@ -252,7 +252,7 @@ describe("seeder restart catch-up", { concurrency: false, timeout: 5000 }, () =>
 		await f.seeder.start()
 		const captured = deferred()
 		const release = deferred()
-		f.getState.mock.mockImplementationOnce(async () => {
+		f.getCIDAccumulatorState.mock.mockImplementationOnce(async () => {
 			const state = f.state()
 			captured.resolve()
 			await release.promise
@@ -279,6 +279,6 @@ describe("seeder restart catch-up", { concurrency: false, timeout: 5000 }, () =>
 		await oldSync
 		await restarting
 		await f.assertFullyPinned()
-		assert.equal(f.getState.mock.callCount(), 3)
+		assert.equal(f.getCIDAccumulatorState.mock.callCount(), 3)
 	})
 })

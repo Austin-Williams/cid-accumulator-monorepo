@@ -84,7 +84,7 @@ export class DataClient {
 				try {
 					snapshot = await chain.snapshot()
 					this.activeSnapshot = snapshot
-					let state = await this.accumulatorContract.getState({ blockHash: snapshot.block.hash, requireCanonical: true })
+					let state = await this.accumulatorContract.getCIDAccumulatorState({ blockHash: snapshot.block.hash, requireCanonical: true })
 					let snapshotRefreshes = 0
 					while (true) {
 						const { meta, peaks } = state
@@ -101,7 +101,7 @@ export class DataClient {
 						} catch (error) {
 							if (!(error instanceof CacheAheadOfSnapshotError)) throw error
 							const next = await chain.snapshot()
-							const latest = await this.accumulatorContract.getState({ blockHash: next.block.hash, requireCanonical: true })
+							const latest = await this.accumulatorContract.getCIDAccumulatorState({ blockHash: next.block.hash, requireCanonical: true })
 							if (latest.meta.leafCount <= meta.leafCount) throw error
 							if (snapshotRefreshes++ >= MAX_SYNC_SNAPSHOT_REFRESHES) throw new Error(`[DataClient] Contract kept advancing during sync for ${this.account}; retry sync() to verify a fresh snapshot.`)
 							this.activeSnapshot = next

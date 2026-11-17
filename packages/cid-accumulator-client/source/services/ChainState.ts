@@ -261,7 +261,7 @@ export class ChainState {
 			if (!bootstrap && checkpoint.lastInsertBlock <= block.number) continue
 			const address = key.slice("chain:account:".length)
 			const account = EthereumAddress.fromString(address)
-			const state = await this.contract.getState({ blockHash: block.hash, requireCanonical: true })
+			const state = await this.contract.getCIDAccumulatorState({ blockHash: block.hash, requireCanonical: true })
 			let from = state.meta.leafCount
 			if (bootstrap && from > 0) {
 				const mmr = new MerkleMountainRange()

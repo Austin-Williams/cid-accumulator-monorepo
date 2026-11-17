@@ -19,14 +19,14 @@ export const CIDAccumulatorABI = [
 	},
 	{
 		inputs: [],
-		name: "getRootCIDString",
+		name: "getCIDAccumulatorRootCIDString",
 		outputs: [{ internalType: "string", name: "", type: "string" }],
 		stateMutability: "view",
 		type: "function",
 	},
 	{
 		inputs: [],
-		name: "getState",
+		name: "getCIDAccumulatorState",
 		outputs: [
 			{ internalType: "uint256", name: "", type: "uint256" },
 			{ internalType: "bytes32[32]", name: "", type: "bytes32[32]" },

@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import { concat, getBytes, hexlify, Interface, toBeHex } from "ethers"
 import { parseLeafAppendedLog } from "../source/ethereum/abiUtils.js"
-import { getLeafAppendedLogs, getState } from "../source/ethereum/commonCalls.js"
+import { getLeafAppendedLogs, getCIDAccumulatorState } from "../source/ethereum/commonCalls.js"
 import { getRootCIDFromPeaks } from "../source/mmr/utils.js"
 import { EthereumAddress } from "../source/ethereum/EthereumAddress.js"
 import { AccumulatorContract } from "../source/ethereum/AccumulatorContract.js"
@@ -90,8 +90,8 @@ test("accumulator RPC calls use the consumer address and pinned block without ac
 		let result: unknown
 		if (request.method === "eth_chainId") result = "0x20000000000001"
 		else if (request.method === "eth_getLogs") result = [log]
-		else if (request.params[0].data === abi.getFunction("getState")!.selector) {
-			result = abi.encodeFunctionResult("getState", [metadata, [peak, ...Array(31).fill(toBeHex(0, 32))]])
+		else if (request.params[0].data === abi.getFunction("getCIDAccumulatorState")!.selector) {
+			result = abi.encodeFunctionResult("getCIDAccumulatorState", [metadata, [peak, ...Array(31).fill(toBeHex(0, 32))]])
 		}
 		return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }))
 	})
@@ -104,7 +104,7 @@ test("accumulator RPC calls use the consumer address and pinned block without ac
 	assert.equal(requests.length, 0)
 	assert.equal(await contract.getChainId(), 0x20000000000001n)
 	assert.equal(contract.address.toString(), account)
-	const state = await getState(params)
+	const state = await getCIDAccumulatorState(params)
 	assert.equal(state.meta.leafCount, 1)
 	assert.equal(state.meta.deployBlockNumber, 100)
 	assert.equal(hexlify((await getRootCIDFromPeaks(state.peaks.map((entry) => entry.cid))).bytes), root)
@@ -118,7 +118,7 @@ test("accumulator RPC calls use the consumer address and pinned block without ac
 	assert.deepEqual(events[0].payload, getBytes(payload))
 	assert.deepEqual(requests.map(({ method, params }) => ({ method, params })), [
 		{ method: "eth_chainId", params: [] },
-		{ method: "eth_call", params: [{ to: account, data: abi.getFunction("getState")!.selector }, block] },
+		{ method: "eth_call", params: [{ to: account, data: abi.getFunction("getCIDAccumulatorState")!.selector }, block] },
 		{ method: "eth_getLogs", params: [{ address: account, topics: [abi.getEvent("LeafAppended")!.topicHash], blockHash }] },
 	])
 })
@@ -131,7 +131,7 @@ test("historical state before deployment is empty only after checking code at th
 		requests.push(request)
 		return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: "0x" }))
 	})
-	const state = await getState({
+	const state = await getCIDAccumulatorState({
 		ethereumHttpRpcUrl: "http://localhost:8545",
 		contractAddress: new EthereumAddress(account),
 		block,
@@ -140,7 +140,7 @@ test("historical state before deployment is empty only after checking code at th
 	assert.equal(state.meta.deployBlockNumber, 0)
 	assert.deepEqual(state.peaks, [])
 	assert.deepEqual(requests.map(({ method, params }) => ({ method, params })), [
-		{ method: "eth_call", params: [{ to: account, data: abi.getFunction("getState")!.selector }, block] },
+		{ method: "eth_call", params: [{ to: account, data: abi.getFunction("getCIDAccumulatorState")!.selector }, block] },
 		{ method: "eth_getCode", params: [account, block] },
 	])
 })

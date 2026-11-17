@@ -49,7 +49,7 @@ function fixture(t: TestContext, lazyLoadEvents = true) {
 		return chain
 	}
 	const getBlock = t.mock.method(contract, "getBlockNumber", async () => latestBlock)
-	const getState = t.mock.method(contract, "getState", async () => {
+	const getCIDAccumulatorState = t.mock.method(contract, "getCIDAccumulatorState", async () => {
 		const { mmr, lastBlock } = chainFor(account)
 		const bits = mmr.leafCount.toString(2)
 		const heights = [...bits].flatMap((bit, index) => (bit === "1" ? [bits.length - index - 1] : []))
@@ -117,7 +117,7 @@ function fixture(t: TestContext, lazyLoadEvents = true) {
 			await setImmediate()
 		}
 	}
-	return { client, events, account, getBlock, getState, getLogs, subscriptions, append, tick }
+	return { client, events, account, getBlock, getCIDAccumulatorState, getLogs, subscriptions, append, tick }
 }
 
 describe("light client event subscriptions", { concurrency: false, timeout: 5000 }, () => {
@@ -213,7 +213,7 @@ describe("light client event subscriptions", { concurrency: false, timeout: 5000
 			}
 			if (stage === "initialization") t.mock.method(f.events, "init", fail, { times: 1 })
 			else if (stage === "polling startup") f.getBlock.mock.mockImplementationOnce(fail)
-			else f.getState.mock.mockImplementationOnce(fail)
+			else f.getCIDAccumulatorState.mock.mockImplementationOnce(fail)
 			await assert.rejects(f.client.start(), (error) => error === failure)
 			const afterFailure = await f.append(Uint8Array.of(1))
 			await f.events.fetchAndStoreEventsForBlock(afterFailure.blockNumber)
@@ -285,7 +285,7 @@ describe("light client event subscriptions", { concurrency: false, timeout: 5000
 		assert.equal(storageStop.mock.callCount(), 1, "Stop the component whose initialization finished after cancellation")
 		for (const start of componentStarts) assert.equal(start.mock.callCount(), 0)
 		assert.equal(f.getBlock.mock.callCount(), 0)
-		assert.equal(f.getState.mock.callCount(), 0)
+		assert.equal(f.getCIDAccumulatorState.mock.callCount(), 0)
 		const whileStopped = await f.append(Uint8Array.of(1))
 		await f.events.fetchAndStoreEventsForBlock(whileStopped.blockNumber)
 		assert.equal(received.mock.callCount(), 0)

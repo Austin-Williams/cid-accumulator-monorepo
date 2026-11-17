@@ -4,7 +4,7 @@ This code enables smart contracts to append 32-byte payloads to their own "CID a
 
 The CID accumulator trustlessly computes a CID (content identifier) that resolves over IPFS to a file containing **all data ever appended to their accumulator**.
 
-Users can make a single ETH RPC call to the `getRootCIDString()` function on that contract to get an IPFS CID, and then make a single call to an IPFS HTTP gateway (e.g. a local Kubo gateway at `http://127.0.0.1:8080/ipfs/<CID>?format=car`) to downlaod a file containing all data ever appended to the accumulator (as well as all additional data needed to locally verify that they have received the correct data).
+Users can make a single ETH RPC call to the `getCIDAccumulatorRootCIDString()` function on that contract to get an IPFS CID, and then make a single call to an IPFS HTTP gateway (e.g. a local Kubo gateway at `http://127.0.0.1:8080/ipfs/<CID>?format=car`) to downlaod a file containing all data ever appended to the accumulator (as well as all additional data needed to locally verify that they have received the correct data).
 
 It requires no trusted third parties or centralized services from start to finish. It is a fully decentralized system, completely aligned with cypherpunk values. It has no governance, no upgradability, no censorship, no unnecessary token, no "community", no non-profit "labs", no for-profit company, no rent-seeking, nothing. It is simply a free, open source tool to empower users.
 
@@ -69,11 +69,11 @@ event LeafAppended(
 );
 ```
 
-Most data inserts require between 12.9k and 16.6k gas. See below for more about gas costs.
+Most data inserts require between 12.9k and 16.5k gas. See below for more about gas costs.
 
 ## How the off-chain component works
 
-To get the root CID for your contract's data, call its `getRootCIDString()` function (for the base32-encoded CID string).
+To get the root CID for your contract's data, call its `getCIDAccumulatorRootCIDString()` function (for the base32-encoded CID string).
 
 Then use that root CID to download the data from your IPFS gateway. For example, `https://inbrowser.link/ipfs/<rootCID>` or `http://127.0.0.1:8080/ipfs/<rootCID>?format=car`.
 
@@ -380,18 +380,18 @@ Measured with Solidity 0.8.38, optimizer 200 runs, Osaka, using `ExampleApplicat
 | ----------- | -------------------------------- | -------------- |
 | 0           | No merges (new peak at height 0) | ≈ 12.9k gas    |
 | 1           | Merge with 1 peak  → height 1    | ≈ 13.7k gas    |
-| 2           | Merge with 2 peaks → height 2    | ≈ 16.6k gas    |
+| 2           | Merge with 2 peaks → height 2    | ≈ 16.5k gas    |
 | 3           | Merge with 3 peaks → height 3    | ≈ 19.4k gas    |
 | 4           | Merge with 4 peaks → height 4    | ≈ 22.3k gas    |
-| 5           | Merge with 5 peaks → height 5    | ≈ 25.2k gas    |
+| 5           | Merge with 5 peaks → height 5    | ≈ 25.1k gas    |
 | 6           | Merge with 6 peaks → height 6    | ≈ 28.0k gas    |
 | 7           | Merge with 7 peaks → height 7    | ≈ 30.9k gas    |
 | 8           | Merge with 8 peaks → height 8    | ≈ 33.8k gas    |
-| 9           | Merge with 9 peaks → height 9    | ≈ 36.7k gas    |
+| 9           | Merge with 9 peaks → height 9    | ≈ 36.6k gas    |
 | 10          | Merge with 10 peaks → height 10  | ≈ 39.5k gas    |
 
 
-> ℹ️ Most inserts (87.5%) fall in the **12.9K–16.6K gas** range. Deeper merges are **exponentially rare**:
+> ℹ️ Most inserts (87.5%) fall in the **12.9K–16.5K gas** range. Deeper merges are **exponentially rare**:
 >
 > - Merge depth 3 happens once every 16 inserts
 > - Merge depth 6 happens once every 128 inserts
@@ -403,14 +403,14 @@ For example, if you insert `2^20` entries (just over 1 million), here’s how of
 | ----------- | ----------- | -------------- |
 | 0           | 50.0%       | ≈ 12 .9 k      |
 | 1           | 25.0%       | ≈ 13 .7 k      |
-| 2           | 12.5%       | ≈ 16 .6 k      |
+| 2           | 12.5%       | ≈ 16 .5 k      |
 | 3           | 6.25%       | ≈ 19 .4 k      |
 | 4           | 3.125%      | ≈ 22 .3 k      |
-| 5           | 1.5625%     | ≈ 25 .2 k      |
+| 5           | 1.5625%     | ≈ 25 .1 k      |
 | 6           | 0.78125%    | ≈ 28 .0 k      |
 | 7           | 0.390625%   | ≈ 30 .9 k      |
 | 8           | 0.1953125%  | ≈ 33 .8 k      |
-| 9           | 0.09765625% | ≈ 36 .7 k      |
+| 9           | 0.09765625% | ≈ 36 .6 k      |
 | 10          | 0.048828125%| ≈ 39 .5 k      |
 
 

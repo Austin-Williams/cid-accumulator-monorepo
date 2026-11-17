@@ -50,7 +50,7 @@ function fixture(t: TestContext) {
 			peaks: mmr.peaks.map((cid, index) => ({ cid, height: heights[index] })),
 		}
 	}
-	const getState = t.mock.method(contract, "getState", async () => snapshot())
+	const getCIDAccumulatorState = t.mock.method(contract, "getCIDAccumulatorState", async () => snapshot())
 	t.mock.method(contract, "getBlockNumber", async () => Math.max(1, logs.length))
 	t.mock.method(contract, "getLeafAppendedLogs", async (from: number, to: number) =>
 		logs.filter((event) => event.blockNumber >= from && event.blockNumber <= to)
@@ -95,7 +95,7 @@ function fixture(t: TestContext) {
 		client,
 		storage,
 		events,
-		getState,
+		getCIDAccumulatorState,
 		resolve,
 		snapshot,
 		append,
@@ -111,7 +111,7 @@ describe("sync snapshots while the contract advances", { concurrency: false, tim
 			if (initialLeafCount) await f.append(Uint8Array.of(1))
 			const captured = deferred()
 			const release = deferred()
-			f.getState.mock.mockImplementationOnce(async () => {
+			f.getCIDAccumulatorState.mock.mockImplementationOnce(async () => {
 				const state = f.snapshot()
 				captured.resolve()
 				await release.promise
@@ -125,7 +125,7 @@ describe("sync snapshots while the contract advances", { concurrency: false, tim
 			await sync
 			assert.equal(f.client.completedInitialSync, true)
 			assert.equal(f.client.syncing, false)
-			assert.equal(f.getState.mock.callCount(), 2)
+			assert.equal(f.getCIDAccumulatorState.mock.callCount(), 2)
 			assert.equal(f.resolve.mock.callCount(), 0)
 			assert.equal(await f.client.getHighestIndex(), initialLeafCount)
 			assert.equal(await f.client.getPayload(initialLeafCount), "02")
@@ -152,7 +152,7 @@ describe("sync snapshots while the contract advances", { concurrency: false, tim
 		release.resolve()
 		await sync
 		assert.equal(f.client.completedInitialSync, true)
-		assert.equal(f.getState.mock.callCount(), 2)
+		assert.equal(f.getCIDAccumulatorState.mock.callCount(), 2)
 		assert.equal(f.resolve.mock.callCount(), 1)
 		assert.deepEqual(await f.client.getPayloadInRange(0, 1), [
 			{ index: 0, payload: "01" },
@@ -176,7 +176,7 @@ describe("sync snapshots while the contract advances", { concurrency: false, tim
 		await f.client.sync()
 		assert.equal(appended, true)
 		assert.equal(f.client.completedInitialSync, true)
-		assert.equal(f.getState.mock.callCount(), 2)
+		assert.equal(f.getCIDAccumulatorState.mock.callCount(), 2)
 		assert.equal(await f.client.getPayload(1), "02")
 	})
 
@@ -185,7 +185,7 @@ describe("sync snapshots while the contract advances", { concurrency: false, tim
 		await f.append(Uint8Array.of(1))
 		await f.put(1, Uint8Array.of(99))
 		await assert.rejects(f.client.sync(), /Cache integrity check failed.*expected 1.*found 2/)
-		assert.equal(f.getState.mock.callCount(), 2)
+		assert.equal(f.getCIDAccumulatorState.mock.callCount(), 2)
 		assert.equal(f.resolve.mock.callCount(), 0)
 		assert.equal(f.client.completedInitialSync, false)
 		assert.equal(f.client.syncing, false)
@@ -196,13 +196,13 @@ describe("sync snapshots while the contract advances", { concurrency: false, tim
 		const f = fixture(t)
 		await f.append(Uint8Array.of(1))
 		await f.put(0, Uint8Array.of(99))
-		f.getState.mock.mockImplementationOnce(async () => {
+		f.getCIDAccumulatorState.mock.mockImplementationOnce(async () => {
 			const state = f.snapshot()
 			await f.append(Uint8Array.of(2))
 			return state
 		})
 		await assert.rejects(f.client.sync(), /Cache integrity check failed.*root mismatch/)
-		assert.equal(f.getState.mock.callCount(), 2)
+		assert.equal(f.getCIDAccumulatorState.mock.callCount(), 2)
 		assert.equal(f.resolve.mock.callCount(), 0)
 		assert.equal(f.client.completedInitialSync, false)
 		assert.equal(f.client.syncing, false)
@@ -212,7 +212,7 @@ describe("sync snapshots while the contract advances", { concurrency: false, tim
 	test("continuous advancement is bounded and a later sync can retry successfully", async (t) => {
 		const f = fixture(t)
 		await f.append(Uint8Array.of(1))
-		f.getState.mock.mockImplementation(async () => {
+		f.getCIDAccumulatorState.mock.mockImplementation(async () => {
 			const state = f.snapshot()
 			await f.append(Uint8Array.of(state.meta.leafCount + 1))
 			return state
@@ -223,13 +223,13 @@ describe("sync snapshots while the contract advances", { concurrency: false, tim
 			assert.doesNotMatch(error.message, /integrity check failed/i)
 			return true
 		})
-		assert.equal(f.getState.mock.callCount(), 5)
+		assert.equal(f.getCIDAccumulatorState.mock.callCount(), 5)
 		assert.equal(f.client.completedInitialSync, false)
 		assert.equal(f.client.syncing, false)
 
-		f.getState.mock.mockImplementation(async () => f.snapshot())
+		f.getCIDAccumulatorState.mock.mockImplementation(async () => f.snapshot())
 		await f.client.sync()
-		assert.equal(f.getState.mock.callCount(), 6)
+		assert.equal(f.getCIDAccumulatorState.mock.callCount(), 6)
 		assert.equal(f.client.completedInitialSync, true)
 		assert.equal(f.client.syncing, false)
 		assert.equal(await f.client.getHighestIndex(), 5)
@@ -241,7 +241,7 @@ describe("sync snapshots while the contract advances", { concurrency: false, tim
 		const stoppedEvents = t.mock.method(f.events, "stop")
 		const captured = deferred()
 		const release = deferred()
-		f.getState.mock.mockImplementationOnce(async () => {
+		f.getCIDAccumulatorState.mock.mockImplementationOnce(async () => {
 			const state = f.snapshot()
 			captured.resolve()
 			await release.promise
@@ -255,7 +255,7 @@ describe("sync snapshots while the contract advances", { concurrency: false, tim
 		assert.equal(f.client.running, true)
 		assert.equal(f.client.initialized, true)
 		assert.equal(f.client.completedInitialSync, true)
-		assert.equal(f.getState.mock.callCount(), 2)
+		assert.equal(f.getCIDAccumulatorState.mock.callCount(), 2)
 		assert.equal(stoppedEvents.mock.callCount(), 0)
 		assert.equal(await f.client.getPayload(1), "02")
 	})

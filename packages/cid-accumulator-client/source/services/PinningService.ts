@@ -166,7 +166,7 @@ export class PinningService implements LifecycleComponent {
 		const snapshot = await this.chain!.snapshot()
 		const mmr = this.mmr
 		if (mmr.leafCount === 0) return false
-		const state = await this.accumulatorContract.getState({ blockHash: snapshot.block.hash, requireCanonical: true })
+		const state = await this.accumulatorContract.getCIDAccumulatorState({ blockHash: snapshot.block.hash, requireCanonical: true })
 		const onChainRootCID = await getRootCIDFromPeaks(state.peaks.map((peak) => peak.cid))
 		const localRootCID = await mmr.rootCID()
 		await this.chain!.ensureCanonical(snapshot)

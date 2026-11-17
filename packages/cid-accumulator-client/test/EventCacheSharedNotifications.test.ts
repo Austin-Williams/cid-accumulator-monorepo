@@ -24,7 +24,7 @@ function fixture(t: TestContext) {
 	mockChain(t, contract, storage)
 	let head = 10
 	const logs: NormalizedLeafAppendedEvent[] = []
-	t.mock.method(contract, "getState", async () => ({
+	t.mock.method(contract, "getCIDAccumulatorState", async () => ({
 		meta: { leafCount: logs.length, peakCount: 0, peakHeights: [], previousInsertBlockNumber: logs.at(-1)?.blockNumber ?? 0, deployBlockNumber: logs[0]?.blockNumber ?? 0 },
 		peaks: [],
 	}))
