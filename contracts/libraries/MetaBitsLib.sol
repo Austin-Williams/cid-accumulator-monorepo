@@ -7,7 +7,7 @@ pragma solidity 0.8.38;
  * Bits 160–164 : peakCount (5 bits) — number of peaks currently in use
  * Bits 165–196 : leafCount (32 bits) — total number of data leaves added
  * Bits 197–228 : previousInsertBlockNumber (32 bits)
- * Bits 229–255 : deployBlockNumber (27 bits) — block number this account first appended any data
+ * Bits 229–255 : deployBlockNumber (27 bits) — block number this accumulator first appended any data
  *
  * This structure allows us to avoid separate storage slots for peak metadata,
  * reducing gas usage by packing everything into a single uint256.
@@ -46,7 +46,7 @@ library MetaBitsLib {
 		return (bits >> PREVIOUS_INSERT_BLOCKNUM_OFFSET) & PREVIOUS_INSERT_BLOCKNUM_MASK;
 	}
 
-	/// @notice Extracts the deployment block number from packed bits.
+	/// @notice Extracts the first-append birthday block number from packed bits.
 	function getDeployBlockNum(uint256 bits) internal pure returns (uint256) {
 		return (bits >> DEPLOY_BLOCKNUM_OFFSET) & DEPLOY_BLOCKNUM_MASK;
 	}
@@ -95,7 +95,7 @@ library MetaBitsLib {
 		return packedBits;
 	}
 
-	/// @notice Sets the deployment block number in packed bits.
+	/// @notice Sets the first-append birthday block number in packed bits.
 	function setDeployBlockNum(uint256 bits, uint256 deployBlockNum) internal pure returns (uint256) {
 		bits &= ~(DEPLOY_BLOCKNUM_MASK << DEPLOY_BLOCKNUM_OFFSET);
 		bits |= (deployBlockNum << DEPLOY_BLOCKNUM_OFFSET);
