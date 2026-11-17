@@ -8,7 +8,7 @@ import {
 } from "../source/config/defaultConfig.js"
 import { AccumulatorContract } from "../source/ethereum/AccumulatorContract.js"
 import { EthereumAddress } from "../source/ethereum/EthereumAddress.js"
-import type { NormalizedLeafAppendedEvent } from "../source/ethereum/events.types.js"
+import type { NormalizedDataAppendedEvent } from "../source/ethereum/events.types.js"
 import type { LeafRecord } from "../source/mmr/types.js"
 import { EventCacheService } from "../source/services/EventCacheService.js"
 import { InMemoryAdapter } from "../source/storage/adapters/InMemoryAdapter.js"
@@ -31,7 +31,7 @@ function fixture(t: TestContext, lazyLoadEvents = true) {
 	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: account })
 	mockChain(t, contract, storage)
 	let head = 10
-	const logs: NormalizedLeafAppendedEvent[] = []
+	const logs: NormalizedDataAppendedEvent[] = []
 	t.mock.method(contract, "getCIDAccumulatorState", async () => ({
 		meta: {
 			leafCount: logs.length, peakCount: 0, peakHeights: [],
@@ -43,7 +43,7 @@ function fixture(t: TestContext, lazyLoadEvents = true) {
 	t.mock.method(contract, "getBlockNumber", async () => head)
 	const recordsFor = (from: number, to: number) =>
 		logs.filter((event) => event.blockNumber >= from && event.blockNumber <= to)
-	const getLogs = t.mock.method(contract, "getLeafAppendedLogs", async (from: number, to: number) =>
+	const getLogs = t.mock.method(contract, "getDataAppendedLogs", async (from: number, to: number) =>
 		recordsFor(from, to)
 	)
 	const services: EventCacheService[] = []
@@ -64,7 +64,7 @@ function fixture(t: TestContext, lazyLoadEvents = true) {
 		contract.stop()
 	})
 	function append(blockNumber: number) {
-		const event: NormalizedLeafAppendedEvent = {
+		const event: NormalizedDataAppendedEvent = {
 			account,
 			leafIndex: logs.length,
 			payload: Uint8Array.of(logs.length + 1),
@@ -228,7 +228,7 @@ describe("event cache restart catch-up", { concurrency: false, timeout: 5000 }, 
 		const first = f.append(11)
 		f.setHead(11)
 		const entered = deferred<void>()
-		const release = deferred<NormalizedLeafAppendedEvent[]>()
+		const release = deferred<NormalizedDataAppendedEvent[]>()
 		t.after(() => release.resolve([]))
 		f.getLogs.mock.mockImplementationOnce(async () => {
 			entered.resolve()

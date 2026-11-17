@@ -10,7 +10,7 @@ import {
 import { DataClient } from "../source/core/dataClient/DataClient.js"
 import { AccumulatorContract } from "../source/ethereum/AccumulatorContract.js"
 import { EthereumAddress } from "../source/ethereum/EthereumAddress.js"
-import type { NormalizedLeafAppendedEvent } from "../source/ethereum/events.types.js"
+import type { NormalizedDataAppendedEvent } from "../source/ethereum/events.types.js"
 import { IpfsResolver } from "../source/ipfs/IpfsResolver.js"
 import { MerkleMountainRange } from "../source/mmr/MerkleMountainRange.js"
 import { EventCacheService } from "../source/services/EventCacheService.js"
@@ -24,7 +24,7 @@ async function fixture(t: TestContext, payloads: Uint8Array[]) {
 	t.mock.method(console, "error", () => {})
 	const account = new EthereumAddress("0x" + "11".repeat(20))
 	const mmr = new MerkleMountainRange()
-	const events: NormalizedLeafAppendedEvent[] = []
+	const events: NormalizedDataAppendedEvent[] = []
 	for (const [index, payload] of payloads.entries()) {
 		const previousPeaks = [...mmr.peaks]
 		await mmr.addLeafWithTrail(index, payload)
@@ -55,7 +55,7 @@ async function fixture(t: TestContext, payloads: Uint8Array[]) {
 	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: account })
 	mockChain(t, contract, storage)
 	const getCIDAccumulatorState = t.mock.method(contract, "getCIDAccumulatorState", async () => state)
-	const getLogs = t.mock.method(contract, "getLeafAppendedLogs", async (from: number, to: number) =>
+	const getLogs = t.mock.method(contract, "getDataAppendedLogs", async (from: number, to: number) =>
 		events.filter((event) => event.blockNumber >= from && event.blockNumber <= to)
 	)
 	const eventCacheService = new EventCacheService(storage, contract, defaultLightClientEventCacheServiceConfig)

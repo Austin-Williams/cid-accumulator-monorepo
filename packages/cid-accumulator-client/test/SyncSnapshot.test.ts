@@ -10,7 +10,7 @@ import {
 import { LightClient } from "../source/core/lightClient/LightClient.js"
 import { AccumulatorContract } from "../source/ethereum/AccumulatorContract.js"
 import { EthereumAddress } from "../source/ethereum/EthereumAddress.js"
-import type { NormalizedLeafAppendedEvent } from "../source/ethereum/events.types.js"
+import type { NormalizedDataAppendedEvent } from "../source/ethereum/events.types.js"
 import { IpfsResolver } from "../source/ipfs/IpfsResolver.js"
 import { MerkleMountainRange } from "../source/mmr/MerkleMountainRange.js"
 import { EventCacheService } from "../source/services/EventCacheService.js"
@@ -34,7 +34,7 @@ function fixture(t: TestContext) {
 	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: account })
 	mockChain(t, contract, storage)
 	const mmr = new MerkleMountainRange()
-	const logs: NormalizedLeafAppendedEvent[] = []
+	const logs: NormalizedDataAppendedEvent[] = []
 	function snapshot() {
 		const heights = [...mmr.leafCount.toString(2)].flatMap((bit, index, bits) =>
 			bit === "1" ? [bits.length - index - 1] : []
@@ -52,7 +52,7 @@ function fixture(t: TestContext) {
 	}
 	const getCIDAccumulatorState = t.mock.method(contract, "getCIDAccumulatorState", async () => snapshot())
 	t.mock.method(contract, "getBlockNumber", async () => Math.max(1, logs.length))
-	t.mock.method(contract, "getLeafAppendedLogs", async (from: number, to: number) =>
+	t.mock.method(contract, "getDataAppendedLogs", async (from: number, to: number) =>
 		logs.filter((event) => event.blockNumber >= from && event.blockNumber <= to)
 	)
 	const events = new EventCacheService(storage, contract, defaultLightClientEventCacheServiceConfig)
@@ -78,7 +78,7 @@ function fixture(t: TestContext) {
 		const previousPeaks = [...mmr.peaks]
 		await mmr.addLeafWithTrail(leafIndex, payload)
 		const mergeCount = previousPeaks.length + 1 - mmr.peaks.length
-		const event: NormalizedLeafAppendedEvent = {
+		const event: NormalizedDataAppendedEvent = {
 			account,
 			leafIndex,
 			payload,

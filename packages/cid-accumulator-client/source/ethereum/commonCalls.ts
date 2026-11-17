@@ -7,19 +7,19 @@ import {
 	getSelector,
 	parseAccumulatorMetaBits,
 	parseGetStateResult,
-	parseLeafAppendedLog,
+	parseDataAppendedLog,
 } from "./abiUtils.js"
 
 import type { AccumulatorMetadata, PeakWithHeight } from "../mmr/types.js"
 import type {
 	BlockReference,
 	ChainBlock,
-	NormalizedLeafAppendedEvent,
+	NormalizedDataAppendedEvent,
 	RawEthLog,
 } from "./events.types.js"
 import type { Logger } from "../types/common.js"
 
-import { LEAF_APPENDED_EVENT_SIGNATURE } from "../utils/constants.js"
+import { DATA_APPENDED_EVENT_SIGNATURE } from "../utils/constants.js"
 
 const logger: Logger = createLogger("CommonCalls")
 
@@ -141,15 +141,15 @@ function toHexBlock(n: number): string {
 }
 
 /** Find this accumulator's append events by emitting address and event signature. */
-export async function getLeafAppendedLogs(params: {
+export async function getDataAppendedLogs(params: {
 	ethereumHttpRpcUrl: string
 	contractAddress: EthereumAddress
 	fromBlock: number
 	toBlock: number
 	blockHash?: string
-}): Promise<NormalizedLeafAppendedEvent[]> {
+}): Promise<NormalizedDataAppendedEvent[]> {
 	const { ethereumHttpRpcUrl, contractAddress, fromBlock, toBlock, blockHash } = params
-	const eventTopic = getEventTopic(LEAF_APPENDED_EVENT_SIGNATURE)
+	const eventTopic = getEventTopic(DATA_APPENDED_EVENT_SIGNATURE)
 	const filter = {
 		address: contractAddress.toString(),
 		topics: [eventTopic],
@@ -166,5 +166,5 @@ export async function getLeafAppendedLogs(params: {
 			throw new Error("Ethereum RPC returned logs outside the requested block range")
 		}
 	}
-	return Promise.all(logs.map(parseLeafAppendedLog))
+	return Promise.all(logs.map(parseDataAppendedLog))
 }

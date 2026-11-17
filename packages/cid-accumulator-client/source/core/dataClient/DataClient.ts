@@ -30,7 +30,7 @@ class CacheAheadOfSnapshotError extends Error {}
  * Retrieves and verifies the configured consumer contract's accumulator data.
  * Uses the "CID-Walkback" method to look for payload data on IPFS, and will fully sync from
  * contract events (eventually) if it can't find anything on IPFS. It relies on the EventCacheService
- * to fetch LeafAppended events as needed.
+ * to fetch DataAppendedToCIDAccumulator events as needed.
  */
 export class DataClient {
 	/** The emitting consumer contract's address, used to identify its leaf records. */
@@ -168,11 +168,11 @@ export class DataClient {
 
 	/**
 	 * @notice Handles a new leaf appended event for this account. Simply passes it along to any subscribers.
-	 * @dev Called by LightClient when it learns about a new LeafAppended event.
+	 * @dev Called by LightClient when it learns about a new DataAppendedToCIDAccumulator event.
 	 * @param event The leaf record containing the new leaf data (includes payload)
 	 * @return A promise that resolves when the event has been processed
 	 */
-	public onLeafAppended(event: LeafRecord): void {
+	public onDataAppended(event: LeafRecord): void {
 		// Notify all subscribers about the new leaf record
 		this.notifySubscribers({ type: "append", record: event })
 
@@ -553,7 +553,7 @@ export class DataClient {
 				peaksWithHeightsAfterInsert: previousPeaksWithHeights,
 				leafRecord: undefined,
 			}
-			// fetch the previous LeafAppended event
+			// fetch the previous DataAppendedToCIDAccumulator event
 			// Note that this also(via the event coordinator) ensures the payload for that leaf is available in the DB
 			infoForNextLoop.leafRecord = await this.eventCacheService.getLeafRecordForLeafIndexOrThrow(
 				infoForNextLoop.leafIndex,

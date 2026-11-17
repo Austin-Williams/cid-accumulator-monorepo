@@ -129,7 +129,7 @@ export class LightClient extends DataClient implements LifecycleComponent {
 			// Connect before startup or initial sync can fetch and publish events.
 			this.unsubscribeFromEventCacheService = this.eventCacheService.subscribe((event) => {
 				if (this.isCurrentStartup(generation) && event.account.toString() === this.account.toString()) {
-					this.onLeafAppended(event)
+					this.onDataAppended(event)
 				}
 			})
 			if (!this.initialized) await this.initialize(generation)

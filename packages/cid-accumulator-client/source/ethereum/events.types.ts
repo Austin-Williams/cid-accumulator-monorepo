@@ -17,7 +17,7 @@ export interface RawEthLog {
 	blockHash?: string
 }
 
-export type NormalizedLeafAppendedEvent = {
+export type NormalizedDataAppendedEvent = {
 	account: EthereumAddress // The contract emitting the event.
 	leafIndex: number
 	previousInsertBlockNumber: number

@@ -86,7 +86,7 @@ function fixture(t: TestContext) {
 		trails.push(await chain.addLeafWithTrail(leafIndex, payload))
 		const record: LeafRecord = { account, leafIndex, payload }
 		await putLeafRecordInDB(storage, account, leafIndex, record)
-		if (notify) client.onLeafAppended(record)
+		if (notify) client.onDataAppended(record)
 	}
 	async function tick() {
 		const callback = intervals.mock.calls[intervals.mock.callCount() - 1]?.arguments[0]

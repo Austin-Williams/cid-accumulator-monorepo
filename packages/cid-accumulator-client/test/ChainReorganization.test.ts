@@ -11,7 +11,7 @@ import {
 import { LightClient } from "../source/core/lightClient/LightClient.js"
 import { AccumulatorContract } from "../source/ethereum/AccumulatorContract.js"
 import { EthereumAddress } from "../source/ethereum/EthereumAddress.js"
-import type { BlockReference, ChainBlock, NormalizedLeafAppendedEvent } from "../source/ethereum/events.types.js"
+import type { BlockReference, ChainBlock, NormalizedDataAppendedEvent } from "../source/ethereum/events.types.js"
 import { IpfsResolver } from "../source/ipfs/IpfsResolver.js"
 import { IpfsPinner } from "../source/ipfs/IpfsPinner.js"
 import { MerkleMountainRange } from "../source/mmr/MerkleMountainRange.js"
@@ -21,7 +21,7 @@ import { PinningService } from "../source/services/PinningService.js"
 import { InMemoryAdapter } from "../source/storage/adapters/InMemoryAdapter.js"
 
 type State = Awaited<ReturnType<AccumulatorContract["getCIDAccumulatorState"]>>
-type BranchBlock = { block: ChainBlock; payloads: number[]; state: State; logs: NormalizedLeafAppendedEvent[] }
+type BranchBlock = { block: ChainBlock; payloads: number[]; state: State; logs: NormalizedDataAppendedEvent[] }
 
 function deferred() {
 	let resolve!: () => void
@@ -117,7 +117,7 @@ async function fixture(t: TestContext, startEmpty = false) {
 	})
 	t.mock.method(
 		contract,
-		"getLeafAppendedLogs",
+		"getDataAppendedLogs",
 		async (from: number, to: number, blockHash?: string) => {
 			if (blockHash) return history.get(blockHash)!.logs
 			return Array.from({ length: to - from + 1 }, (_, index) => canonical(from + index).logs).flat()

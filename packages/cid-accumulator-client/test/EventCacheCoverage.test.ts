@@ -7,7 +7,7 @@ import {
 	defaultLightClientEventCacheServiceConfig,
 } from "../source/config/defaultConfig.js"
 import { AccumulatorContract } from "../source/ethereum/AccumulatorContract.js"
-import type { NormalizedLeafAppendedEvent } from "../source/ethereum/events.types.js"
+import type { NormalizedDataAppendedEvent } from "../source/ethereum/events.types.js"
 import { EventCacheService } from "../source/services/EventCacheService.js"
 import { InMemoryAdapter } from "../source/storage/adapters/InMemoryAdapter.js"
 
@@ -20,7 +20,7 @@ function fixture(t: TestContext) {
 		accumulatorContractAddress: "0x" + "ab".repeat(20),
 	})
 	const account = contract.address
-	const logs: NormalizedLeafAppendedEvent[] = [10, 12].map((blockNumber, leafIndex) => ({
+	const logs: NormalizedDataAppendedEvent[] = [10, 12].map((blockNumber, leafIndex) => ({
 		account,
 		leafIndex,
 		payload: new Uint8Array(32).fill(leafIndex + 1),
@@ -41,7 +41,7 @@ function fixture(t: TestContext) {
 		},
 		peaks: [],
 	}))
-	const getLogs = t.mock.method(contract, "getLeafAppendedLogs", async (from: number, to: number) =>
+	const getLogs = t.mock.method(contract, "getDataAppendedLogs", async (from: number, to: number) =>
 		logs.filter(event => event.blockNumber >= from && event.blockNumber <= to)
 	)
 	const services: EventCacheService[] = []

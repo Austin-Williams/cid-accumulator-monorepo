@@ -86,7 +86,7 @@ async function fixture(t: TestContext, pause: "sync" | "pin") {
 		for (const pair of await chain.addLeafWithTrail(leafIndex, payload)) expected.add(pair.cid.toString())
 		const record = { account: contract.address, leafIndex, payload }
 		await putLeafRecordInDB(storage, contract.address, leafIndex, record)
-		if (notify) client.onLeafAppended(record)
+		if (notify) client.onDataAppended(record)
 	}
 	async function tick() {
 		const callback = intervals.mock.calls.at(-1)?.arguments[0]

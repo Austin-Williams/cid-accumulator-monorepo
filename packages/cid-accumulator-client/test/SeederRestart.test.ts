@@ -12,7 +12,7 @@ import {
 import { Seeder } from "../source/core/seeder/Seeder.js"
 import { AccumulatorContract } from "../source/ethereum/AccumulatorContract.js"
 import { EthereumAddress } from "../source/ethereum/EthereumAddress.js"
-import type { NormalizedLeafAppendedEvent } from "../source/ethereum/events.types.js"
+import type { NormalizedDataAppendedEvent } from "../source/ethereum/events.types.js"
 import { IpfsPinner } from "../source/ipfs/IpfsPinner.js"
 import { IpfsResolver } from "../source/ipfs/IpfsResolver.js"
 import type { CIDDataPair } from "../source/ipfs/types.js"
@@ -51,7 +51,7 @@ function fixture(t: TestContext) {
 	const contract = new AccumulatorContract({ ...defaultSeederAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
 	mockChain(t, contract, storage)
 	const chain = new MerkleMountainRange()
-	const logs: NormalizedLeafAppendedEvent[] = []
+	const logs: NormalizedDataAppendedEvent[] = []
 	const trails: MMRLeafAppendedTrail[] = []
 	let head = 1
 	function state() {
@@ -71,7 +71,7 @@ function fixture(t: TestContext) {
 	}
 	const getCIDAccumulatorState = t.mock.method(contract, "getCIDAccumulatorState", async () => state())
 	t.mock.method(contract, "getBlockNumber", async () => head)
-	const getLogs = t.mock.method(contract, "getLeafAppendedLogs", async (from: number, to: number) =>
+	const getLogs = t.mock.method(contract, "getDataAppendedLogs", async (from: number, to: number) =>
 		logs.filter((event) => event.blockNumber >= from && event.blockNumber <= to)
 	)
 	const events = new EventCacheService(storage, contract, {
@@ -112,7 +112,7 @@ function fixture(t: TestContext) {
 		const previousPeaks = [...chain.peaks]
 		trails.push(await chain.addLeafWithTrail(leafIndex, payload))
 		const mergeCount = previousPeaks.length + 1 - chain.peaks.length
-		const event: NormalizedLeafAppendedEvent = {
+		const event: NormalizedDataAppendedEvent = {
 			account,
 			leafIndex,
 			payload,
@@ -162,7 +162,7 @@ describe("seeder restart catch-up", { concurrency: false, timeout: 5000 }, () =>
 		const f = fixture(t)
 		const initial = await f.append(new Uint8Array(32).fill(1))
 		const pinning = f.seeder.dependencies.pinningService
-		const forwarded = t.mock.method(f.client, "onLeafAppended")
+		const forwarded = t.mock.method(f.client, "onDataAppended")
 		const error = new Error("Pinning startup interrupted")
 		t.mock.method(pinning, "start", async () => { throw error }, { times: 1 })
 		await assert.rejects(f.seeder.start(), (caught) => caught === error)

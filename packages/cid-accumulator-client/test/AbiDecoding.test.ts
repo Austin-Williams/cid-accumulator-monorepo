@@ -1,8 +1,8 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { concat, getBytes, hexlify, Interface, toBeHex } from "ethers"
-import { parseLeafAppendedLog } from "../source/ethereum/abiUtils.js"
-import { getLeafAppendedLogs, getCIDAccumulatorState } from "../source/ethereum/commonCalls.js"
+import { parseDataAppendedLog } from "../source/ethereum/abiUtils.js"
+import { getDataAppendedLogs, getCIDAccumulatorState } from "../source/ethereum/commonCalls.js"
 import { getRootCIDFromPeaks } from "../source/mmr/utils.js"
 import { EthereumAddress } from "../source/ethereum/EthereumAddress.js"
 import { AccumulatorContract } from "../source/ethereum/AccumulatorContract.js"
@@ -16,7 +16,7 @@ const previousInsertBlockNumber = 20_000_000
 function encodeLog(payload: string, hashes: string[]): RawEthLog {
 	const metadata = BigInt(2 ** hashes.length - 1) | (BigInt(previousInsertBlockNumber) << 32n)
 	return {
-		...abi.encodeEventLog(abi.getEvent("LeafAppended")!, [metadata, payload, concat(hashes)]),
+		...abi.encodeEventLog(abi.getEvent("DataAppendedToCIDAccumulator")!, [metadata, payload, concat(hashes)]),
 		address: account,
 		blockNumber: toBeHex(previousInsertBlockNumber + 1),
 		blockHash: "0x" + "CD".repeat(32),
@@ -28,7 +28,7 @@ function replaceWord(log: RawEthLog, byteOffset: number, value: bigint): RawEthL
 	return { ...log, data: log.data.slice(0, start) + toBeHex(value, 32).slice(2) + log.data.slice(start + 64) }
 }
 
-test("LeafAppended decoding preserves ABI payloads and merge hashes through the contract limit", async () => {
+test("DataAppendedToCIDAccumulator decoding preserves ABI payloads and merge hashes through the contract limit", async () => {
 	for (const count of [0, 1, 2, 31]) {
 		const hashes = Array.from({ length: count }, (_, i) => toBeHex(i + 1, 32))
 		for (const payload of [
@@ -37,7 +37,7 @@ test("LeafAppended decoding preserves ABI payloads and merge hashes through the 
 			"0x00" + "ab".repeat(30) + "00",
 			toBeHex(1, 32),
 		]) {
-			const event = await parseLeafAppendedLog(encodeLog(payload, hashes))
+			const event = await parseDataAppendedLog(encodeLog(payload, hashes))
 			assert.equal(event.account.toString(), account)
 			assert.equal(event.leafIndex, 2 ** count - 1)
 			assert.equal(event.previousInsertBlockNumber, previousInsertBlockNumber)
@@ -54,7 +54,7 @@ test("LeafAppended decoding preserves ABI payloads and merge hashes through the 
 	}
 })
 
-test("LeafAppended decoding bounds untrusted ABI offsets and lengths before decoding", async () => {
+test("DataAppendedToCIDAccumulator decoding bounds untrusted ABI offsets and lengths before decoding", async () => {
 	const empty = encodeLog(toBeHex(0, 32), [])
 	const cases: [string, RawEthLog][] = [
 		["missing head", { ...empty, data: empty.data.slice(0, 2 + 95 * 2) }],
@@ -69,7 +69,7 @@ test("LeafAppended decoding bounds untrusted ABI offsets and lengths before deco
 		["beyond contract limit", encodeLog(toBeHex(0, 32), Array(32).fill(toBeHex(1, 32)))],
 	]
 	for (const [reason, log] of cases) {
-		await assert.rejects(parseLeafAppendedLog(log), /Invalid LeafAppended/, reason)
+		await assert.rejects(parseDataAppendedLog(log), /Invalid DataAppendedToCIDAccumulator/, reason)
 	}
 })
 
@@ -108,7 +108,7 @@ test("accumulator RPC calls use the consumer address and pinned block without ac
 	assert.equal(state.meta.leafCount, 1)
 	assert.equal(state.meta.deployBlockNumber, 100)
 	assert.equal(hexlify((await getRootCIDFromPeaks(state.peaks.map((entry) => entry.cid))).bytes), root)
-	const events = await getLeafAppendedLogs({
+	const events = await getDataAppendedLogs({
 		...params,
 		fromBlock: previousInsertBlockNumber + 1,
 		toBlock: previousInsertBlockNumber + 1,
@@ -119,7 +119,7 @@ test("accumulator RPC calls use the consumer address and pinned block without ac
 	assert.deepEqual(requests.map(({ method, params }) => ({ method, params })), [
 		{ method: "eth_chainId", params: [] },
 		{ method: "eth_call", params: [{ to: account, data: abi.getFunction("getCIDAccumulatorState")!.selector }, block] },
-		{ method: "eth_getLogs", params: [{ address: account, topics: [abi.getEvent("LeafAppended")!.topicHash], blockHash }] },
+		{ method: "eth_getLogs", params: [{ address: account, topics: [abi.getEvent("DataAppendedToCIDAccumulator")!.topicHash], blockHash }] },
 	])
 })
 

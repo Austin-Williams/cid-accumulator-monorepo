@@ -4,7 +4,7 @@ import * as dagCbor from "./dagCbor.js"
 import { CID } from "../ipfs/CID.js"
 import type { DagCborEncodedData } from "../ipfs/types.js"
 import type { CIDDataPair } from "../ipfs/types.js"
-import type { NormalizedLeafAppendedEvent } from "../ethereum/events.types.js"
+import type { NormalizedDataAppendedEvent } from "../ethereum/events.types.js"
 import type { AccumulatorMetadata, LeafRecord, PeakWithHeight } from "../mmr/types.js"
 
 interface Digest<Code, Size extends number = number> {
@@ -79,8 +79,8 @@ export function hexStringToUint8Array(hex: string): Uint8Array {
 	return bytes
 }
 
-// Converts a NormalizedLeafAppendedEvent to a JSON string (serializes payload and mergeLeftHashes)
-export function NormalizedLeafAppendedEventToString(event: NormalizedLeafAppendedEvent): string {
+// Converts a NormalizedDataAppendedEvent to a JSON string (serializes payload and mergeLeftHashes)
+export function NormalizedDataAppendedEventToString(event: NormalizedDataAppendedEvent): string {
 	return JSON.stringify({
 		leafIndex: event.leafIndex,
 		previousInsertBlockNumber: event.previousInsertBlockNumber,
@@ -120,8 +120,8 @@ export async function stringToCidDataPairArray(str: string): Promise<CIDDataPair
 	}))
 }
 
-// Converts a JSON string back to a NormalizedLeafAppendedEvent (parses payload and mergeLeftHashes)
-export function stringToNormalizedLeafAppendedEvent(str: string): NormalizedLeafAppendedEvent {
+// Converts a JSON string back to a NormalizedDataAppendedEvent (parses payload and mergeLeftHashes)
+export function stringToNormalizedDataAppendedEvent(str: string): NormalizedDataAppendedEvent {
 	const obj = JSON.parse(str)
 	return {
 		account: obj.account,
@@ -133,7 +133,7 @@ export function stringToNormalizedLeafAppendedEvent(str: string): NormalizedLeaf
 	}
 }
 
-export function getLeafRecordFromNormalizedLeafAppendedEvent(event: NormalizedLeafAppendedEvent): LeafRecord {
+export function getLeafRecordFromNormalizedDataAppendedEvent(event: NormalizedDataAppendedEvent): LeafRecord {
 	if (
 		event.account === undefined ||
 		event.leafIndex === undefined ||

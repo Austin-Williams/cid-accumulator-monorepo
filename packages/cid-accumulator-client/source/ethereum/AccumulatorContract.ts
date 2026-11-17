@@ -5,14 +5,14 @@ import {
 	getBlockByHash,
 	getBlockNumber,
 	getChainId,
-	getLeafAppendedLogs,
+	getDataAppendedLogs,
 	getCIDAccumulatorState,
 } from "./commonCalls.js"
 
 import type { AccumulatorContractConfig } from "./AccumulatorContract.types.js"
 import type { AccumulatorMetadata, PeakWithHeight } from "../mmr/types.js"
 import type { LifecycleComponent } from "../types/common.js"
-import type { BlockReference, ChainBlock, NormalizedLeafAppendedEvent } from "./events.types.js"
+import type { BlockReference, ChainBlock, NormalizedDataAppendedEvent } from "./events.types.js"
 
 /** Rate-limited calls to one application inheriting CIDAccumulator. */
 export class AccumulatorContract implements LifecycleComponent {
@@ -64,12 +64,12 @@ export class AccumulatorContract implements LifecycleComponent {
 		}))
 	}
 
-	async getLeafAppendedLogs(
+	async getDataAppendedLogs(
 		fromBlock: number,
 		toBlock: number,
 		blockHash?: string
-	): Promise<NormalizedLeafAppendedEvent[]> {
-		return this.rateLimiter.execute(() => getLeafAppendedLogs({
+	): Promise<NormalizedDataAppendedEvent[]> {
+		return this.rateLimiter.execute(() => getDataAppendedLogs({
 			ethereumHttpRpcUrl: this.ethereumHttpRpcUrl,
 			contractAddress: this.address,
 			fromBlock,

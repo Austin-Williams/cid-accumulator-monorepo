@@ -8,8 +8,7 @@ import {MmrLib} from "./libraries/MmrLib.sol";
 import {CidLib} from "./libraries/CidLib.sol";
 
 /// @title CIDAccumulator
-/// @notice An append-only CID accumulator owned by the inheriting contract.
-/// @dev The application controls when to call _appendLeaf and who may trigger it.
+/// @notice An append-only CID accumulator.
 abstract contract CIDAccumulator is ICIDAccumulator {
 	using MetaBitsLib for uint256;
 	using MmrLib for uint256;
@@ -46,9 +45,8 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 	}
 
 	/// @notice Appends one 32-byte payload to this contract's accumulator.
-	/// @dev The payload is encoded as a DAG-CBOR byte string before hashing; it is not a leaf digest.
-	/// All callers of the application contribute to the same accumulator.
-	function _appendLeaf(bytes32 payload) internal {
+	/// @dev This function encodes the payload as a DAG-CBOR byte string before hashing; it is not a leaf digest.
+	function _appendDataToCIDAccumulator(bytes32 payload) internal {
 		CIDAccumulatorStorage storage state = _getAccumulatorStorage();
 		uint256 packedBits = state.mmrMetaBits;
 		uint256 currentBlock = block.number;
@@ -68,13 +66,13 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 		}
 		// Only the resulting peak is written; consumed slots remain available for reuse.
 		peaks[peakCount] = carryHash;
-		_emitLeafAppended(packedBits, payload, mergeLeftHashes);
+		_emitDataAppended(packedBits, payload, mergeLeftHashes);
 		state.mmrMetaBits = packedBits.updateMetaBits(peakCount, numMerges, currentBlock);
 	}
 
 	/// @dev Emits the standard ABI encoding using temporary memory; no buffer escapes.
-	function _emitLeafAppended(uint256 packedBits, bytes32 payload, bytes32[] memory mergeLeftHashes) private {
-		bytes32 eventTopic = LeafAppended.selector;
+	function _emitDataAppended(uint256 packedBits, bytes32 payload, bytes32[] memory mergeLeftHashes) private {
+		bytes32 eventTopic = DataAppendedToCIDAccumulator.selector;
 		assembly ("memory-safe") {
 			let ptr := mload(0x40)
 			let hashesLength := shl(5, mload(mergeLeftHashes))

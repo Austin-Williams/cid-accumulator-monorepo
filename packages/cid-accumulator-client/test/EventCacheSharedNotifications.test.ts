@@ -8,7 +8,7 @@ import {
 } from "../source/config/defaultConfig.js"
 import { AccumulatorContract } from "../source/ethereum/AccumulatorContract.js"
 import { EthereumAddress } from "../source/ethereum/EthereumAddress.js"
-import type { NormalizedLeafAppendedEvent } from "../source/ethereum/events.types.js"
+import type { NormalizedDataAppendedEvent } from "../source/ethereum/events.types.js"
 import type { LeafRecord } from "../source/mmr/types.js"
 import { EventCacheService } from "../source/services/EventCacheService.js"
 import { InMemoryAdapter } from "../source/storage/adapters/InMemoryAdapter.js"
@@ -23,13 +23,13 @@ function fixture(t: TestContext) {
 	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
 	mockChain(t, contract, storage)
 	let head = 10
-	const logs: NormalizedLeafAppendedEvent[] = []
+	const logs: NormalizedDataAppendedEvent[] = []
 	t.mock.method(contract, "getCIDAccumulatorState", async () => ({
 		meta: { leafCount: logs.length, peakCount: 0, peakHeights: [], previousInsertBlockNumber: logs.at(-1)?.blockNumber ?? 0, deployBlockNumber: logs[0]?.blockNumber ?? 0 },
 		peaks: [],
 	}))
 	t.mock.method(contract, "getBlockNumber", async () => head)
-	t.mock.method(contract, "getLeafAppendedLogs", async (from: number, to: number) =>
+	t.mock.method(contract, "getDataAppendedLogs", async (from: number, to: number) =>
 		logs.filter((record) => record.blockNumber >= from && record.blockNumber <= to)
 	)
 	const callbacks = new Map<EventCacheService, () => unknown>()

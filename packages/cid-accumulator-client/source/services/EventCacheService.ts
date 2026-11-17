@@ -1,12 +1,12 @@
 import { getChainState, type ChainState, type ChainSnapshot } from "./ChainState.js"
 import { createLogger } from "../utils/logging.js"
-import { getLeafRecordFromNormalizedLeafAppendedEvent } from "../utils/codec.js"
+import { getLeafRecordFromNormalizedDataAppendedEvent } from "../utils/codec.js"
 import { putLeafRecordInDB, getLeafRecordFromDB } from "../storage/utils.js"
 import type { LeafRecord } from "../mmr/types.js"
 import type { LifecycleComponent, Logger } from "../types/common.js"
 import type { AccumulatorContract } from "../ethereum/AccumulatorContract.js"
 import type { Storage } from "../storage/interface.js"
-import type { NormalizedLeafAppendedEvent } from "../ethereum/events.types.js"
+import type { NormalizedDataAppendedEvent } from "../ethereum/events.types.js"
 import type { EventCacheServiceConfig } from "./EventCacheService.types.js"
 /** Caches and follows events emitted by one configured accumulator contract. */
 export class EventCacheService implements LifecycleComponent {
@@ -187,15 +187,15 @@ export class EventCacheService implements LifecycleComponent {
 		}
 	}
 
-	private async fetchRange(from: number, to: number, snapshot: ChainSnapshot): Promise<NormalizedLeafAppendedEvent[]> {
+	private async fetchRange(from: number, to: number, snapshot: ChainSnapshot): Promise<NormalizedDataAppendedEvent[]> {
 		const chain = await this.chain
 		const finalized = await this.accumulatorContract.getBlock("finalized")
-		const events: NormalizedLeafAppendedEvent[] = []
+		const events: NormalizedDataAppendedEvent[] = []
 		const historicalEnd = Math.min(to, finalized.number, snapshot.block.number)
-		if (from <= historicalEnd) events.push(...await this.accumulatorContract.getLeafAppendedLogs(from, historicalEnd))
+		if (from <= historicalEnd) events.push(...await this.accumulatorContract.getDataAppendedLogs(from, historicalEnd))
 		for (let number = Math.max(from, historicalEnd + 1); number <= to; number++) {
 			const block = await chain.getBlock(snapshot, number)
-			events.push(...await this.accumulatorContract.getLeafAppendedLogs(number, number, block.hash))
+			events.push(...await this.accumulatorContract.getDataAppendedLogs(number, number, block.hash))
 		}
 		return events
 	}
@@ -321,7 +321,7 @@ export class EventCacheService implements LifecycleComponent {
 			await chain.ensureCanonical(snapshot)
 
 			// Process events by block
-			const blockToEvents = new Map<number, NormalizedLeafAppendedEvent[]>()
+			const blockToEvents = new Map<number, NormalizedDataAppendedEvent[]>()
 
 			// Group events by block number
 			for (const event of events) {
@@ -460,7 +460,7 @@ export class EventCacheService implements LifecycleComponent {
 		}
 	}
 
-	private announceEventsForBlock(blockNumber: number, events: NormalizedLeafAppendedEvent[]): void {
+	private announceEventsForBlock(blockNumber: number, events: NormalizedDataAppendedEvent[]): void {
 		// A lazy fetch may publish events before polling reaches this block.
 		let announced = this.announcedEvents.get(blockNumber)
 		if (!announced && blockNumber > this.lastPolledBlockNum && events.length > 0) {
@@ -471,7 +471,7 @@ export class EventCacheService implements LifecycleComponent {
 			const eventKey = `${event.account}:${event.leafIndex}`
 			if (announced?.has(eventKey)) continue
 			announced?.add(eventKey)
-			this.notifySubscribers(getLeafRecordFromNormalizedLeafAppendedEvent(event))
+			this.notifySubscribers(getLeafRecordFromNormalizedDataAppendedEvent(event))
 		}
 	}
 
@@ -481,15 +481,15 @@ export class EventCacheService implements LifecycleComponent {
 	 * @dev This method normalizes the account address to lowercase and converts the event to a LeafRecord
 	 * @dev Uses putLeafRecordInDB from storageHelpers to ensure consistent storage format
 	 */
-	private async storeLeafRecord(event: NormalizedLeafAppendedEvent): Promise<void> {
-		const leafRecord = getLeafRecordFromNormalizedLeafAppendedEvent(event)
+	private async storeLeafRecord(event: NormalizedDataAppendedEvent): Promise<void> {
+		const leafRecord = getLeafRecordFromNormalizedDataAppendedEvent(event)
 
 		await (await this.chain).trackAccount(event.account, event.leafIndex + 1, event.blockNumber)
 		await putLeafRecordInDB(this.storage, event.account, event.leafIndex, leafRecord)
 	}
 
 	/** Publish block coverage only after every event's leaf data has been stored. */
-	private async processEventsForBlock(blockNumber: number, events: NormalizedLeafAppendedEvent[]): Promise<void> {
+	private async processEventsForBlock(blockNumber: number, events: NormalizedDataAppendedEvent[]): Promise<void> {
 		for (const event of events) await this.storeLeafRecord(event)
 		await this.storage.put(
 			`events:account:${this.accumulatorContract.address}:block:${blockNumber}`,

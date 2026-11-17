@@ -9,7 +9,7 @@ import {
 import { DataClient } from "../source/core/dataClient/DataClient.js"
 import { AccumulatorContract } from "../source/ethereum/AccumulatorContract.js"
 import { EthereumAddress } from "../source/ethereum/EthereumAddress.js"
-import type { NormalizedLeafAppendedEvent } from "../source/ethereum/events.types.js"
+import type { NormalizedDataAppendedEvent } from "../source/ethereum/events.types.js"
 import { CarReader } from "../source/ipfs/CarReader.js"
 import { IpfsResolver } from "../source/ipfs/IpfsResolver.js"
 import type { CIDDataPair, DagCborEncodedData } from "../source/ipfs/types.js"
@@ -227,7 +227,7 @@ describe("complete IPFS tree resolution", { concurrency: false, timeout: 5000 },
 				{ cid: f.last.cid, height: 0 },
 			],
 		}))
-		const events: NormalizedLeafAppendedEvent[] = expectedPayloads.map(({ index }) => ({
+		const events: NormalizedDataAppendedEvent[] = expectedPayloads.map(({ index }) => ({
 			account,
 			leafIndex: index,
 			payload: Uint8Array.of(index + 1),
@@ -235,7 +235,7 @@ describe("complete IPFS tree resolution", { concurrency: false, timeout: 5000 },
 			previousInsertBlockNumber: index,
 			mergeLeftHashes: index === 1 ? [f.left.cid] : [],
 		}))
-		const getLogs = t.mock.method(contract, "getLeafAppendedLogs", async (from: number, to: number) =>
+		const getLogs = t.mock.method(contract, "getDataAppendedLogs", async (from: number, to: number) =>
 			events.filter((event) => event.blockNumber >= from && event.blockNumber <= to)
 		)
 		const eventCacheService = new EventCacheService(f.storage, contract, defaultLightClientEventCacheServiceConfig)

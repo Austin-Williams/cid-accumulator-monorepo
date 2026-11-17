@@ -8,7 +8,7 @@ import {
 import { DataClient } from "../source/core/dataClient/DataClient.js"
 import { AccumulatorContract } from "../source/ethereum/AccumulatorContract.js"
 import { EthereumAddress } from "../source/ethereum/EthereumAddress.js"
-import type { NormalizedLeafAppendedEvent } from "../source/ethereum/events.types.js"
+import type { NormalizedDataAppendedEvent } from "../source/ethereum/events.types.js"
 import { IpfsResolver } from "../source/ipfs/IpfsResolver.js"
 import type { CIDDataPair } from "../source/ipfs/types.js"
 import { MerkleMountainRange } from "../source/mmr/MerkleMountainRange.js"
@@ -120,7 +120,7 @@ describe("historical CID reconstruction", { concurrency: false, timeout: 5000 },
 				},
 				peaks: states[leafCount].peaks,
 			}))
-			const events: NormalizedLeafAppendedEvent[] = appends.map(({ payload, mergeLeftHashes }, index) => ({
+			const events: NormalizedDataAppendedEvent[] = appends.map(({ payload, mergeLeftHashes }, index) => ({
 				account,
 				leafIndex: index,
 				payload,
@@ -128,7 +128,7 @@ describe("historical CID reconstruction", { concurrency: false, timeout: 5000 },
 				previousInsertBlockNumber: index,
 				mergeLeftHashes,
 			}))
-			const getLogs = t.mock.method(contract, "getLeafAppendedLogs", async (from: number, to: number) => {
+			const getLogs = t.mock.method(contract, "getDataAppendedLogs", async (from: number, to: number) => {
 				assert.ok(from > pinnedCount, "Leaves under the historical root should come from IPFS")
 				return events.filter((event) => event.blockNumber >= from && event.blockNumber <= to)
 			})

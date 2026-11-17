@@ -48,7 +48,7 @@ contract YourContract is CIDAccumulator {
     // Apply your application's checks here (e.g., validate a deposit commitment).
 
     // Append it to your accumulator
-    _appendLeaf(payload);
+    _appendDataToCIDAccumulator(payload);
 
    // That's it!
   }
@@ -57,10 +57,10 @@ contract YourContract is CIDAccumulator {
 
 The [CIDAccumulator contract](contracts/CIDAccumulator.sol) maintains an append-only CID accumulator. Accumulator state lives in the [ERC-7201](https://eips.ethereum.org/EIPS/eip-7201) namespace `cid-accumulator.storage.CIDAccumulator`, separate from your contract's ordinary storage slots.
 
-Each call to `_appendLeaf` causes your contract to emit an event:
+Each call to `_appendDataToCIDAccumulator` causes your contract to emit an event:
 
 ```solidity
-event LeafAppended(
+event DataAppendedToCIDAccumulator(
   // low 32 bits: leaf index; high 32 bits: previous insertion block
   uint64 metadata,
   bytes32 payload,
@@ -372,7 +372,7 @@ await seeder.stop()
 
 ## Gas Costs
 
-The execution gas cost of `_appendLeaf` depends on how many **merge steps** are triggered by that particular insert. Most inserts (75% of them) require zero or one peak update and are cheap (cheaper than a fresh SSTORE). Occasionally, an insert will trigger a chain of merges — and this is what increases gas (for that insert only). Gas estimations below use a 32-byte payload.
+The execution gas cost of `_appendDataToCIDAccumulator` depends on how many **merge steps** are triggered by that particular insert. Most inserts (75% of them) require zero or one peak update and are cheap (cheaper than a fresh SSTORE). Occasionally, an insert will trigger a chain of merges — and this is what increases gas (for that insert only). Gas estimations below use a 32-byte payload.
 
 Measured with Solidity 0.8.38, optimizer 200 runs, Osaka, using `ExampleApplication.record(bytes32)` with cold storage accesses and previously used peak slots. Figures exclude transaction intrinsic gas and any additional application logic.
 

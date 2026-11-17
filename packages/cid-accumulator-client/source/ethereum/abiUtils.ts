@@ -3,12 +3,12 @@ import { keccak_256 } from "@noble/hashes/sha3"
 import { CID } from "../ipfs/CID.js"
 import { contractPeakHexToMmrCid, hexStringToUint8Array } from "../utils/codec.js"
 import { EthereumAddress } from "./EthereumAddress.js"
-import { LEAF_APPENDED_EVENT_SIGNATURE } from "../utils/constants.js"
+import { DATA_APPENDED_EVENT_SIGNATURE } from "../utils/constants.js"
 
 import type { AccumulatorMetadata } from "../mmr/types.js"
 import type { DagCborEncodedData } from "../ipfs/types.js"
 import type {
-	NormalizedLeafAppendedEvent,
+	NormalizedDataAppendedEvent,
 	RawEthLog,
 } from "./events.types.js"
 
@@ -63,28 +63,28 @@ export function parseAccumulatorMetaBits(mmrMetaBits: bigint): AccumulatorMetada
 	}
 }
 
-export async function parseLeafAppendedLog(log: RawEthLog): Promise<NormalizedLeafAppendedEvent> {
-	if (log.topics?.length !== 1 || log.topics[0]?.toLowerCase() !== getEventTopic(LEAF_APPENDED_EVENT_SIGNATURE)) {
-		throw new Error("Invalid LeafAppended event topic")
+export async function parseDataAppendedLog(log: RawEthLog): Promise<NormalizedDataAppendedEvent> {
+	if (log.topics?.length !== 1 || log.topics[0]?.toLowerCase() !== getEventTopic(DATA_APPENDED_EVENT_SIGNATURE)) {
+		throw new Error("Invalid DataAppendedToCIDAccumulator event topic")
 	}
 	const data = log.data.startsWith("0x") ? log.data.slice(2) : log.data
 	if (data.length < 256 || data.length % 2 !== 0 || /[^0-9a-fA-F]/.test(data)) {
-		throw new Error("Invalid LeafAppended ABI data")
+		throw new Error("Invalid DataAppendedToCIDAccumulator ABI data")
 	}
 	const byteLength = BigInt(data.length / 2)
 	const readWord = (offset: number): bigint => BigInt("0x" + data.slice(offset * 2, (offset + 32) * 2))
 	const metadata = readWord(0)
 	if (metadata > 0xffffffffffffffffn) {
-		throw new Error("Invalid LeafAppended metadata")
+		throw new Error("Invalid DataAppendedToCIDAccumulator metadata")
 	}
 	// Validate complete uint256 offsets and lengths before allocating decoded data.
 	const offset = readWord(64)
 	if (offset !== 96n) {
-		throw new Error("Invalid LeafAppended ABI offset")
+		throw new Error("Invalid DataAppendedToCIDAccumulator ABI offset")
 	}
 	const mergeHashesLen = readWord(Number(offset))
 	if (offset + 32n + mergeHashesLen !== byteLength) {
-		throw new Error("Invalid LeafAppended merge hashes length")
+		throw new Error("Invalid DataAppendedToCIDAccumulator merge hashes length")
 	}
 
 	// Unpack before converting to Number: the combined uint64 can exceed safe integer precision.
@@ -93,7 +93,7 @@ export async function parseLeafAppendedLog(log: RawEthLog): Promise<NormalizedLe
 	for (let index = leafIndex; (index & 1n) !== 0n; index >>= 1n) mergeCount++
 	// Each merge consumes a peak; the contract's five-bit peak count is at most 31.
 	if (mergeCount > 31 || mergeHashesLen !== BigInt(mergeCount) * 32n) {
-		throw new Error("Invalid LeafAppended merge hash count")
+		throw new Error("Invalid DataAppendedToCIDAccumulator merge hash count")
 	}
 
 	// The payload is the second head word; the dynamic body contains consumed peaks' hashes.

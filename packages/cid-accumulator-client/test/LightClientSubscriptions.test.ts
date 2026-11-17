@@ -11,7 +11,7 @@ import {
 import { LightClient } from "../source/core/lightClient/LightClient.js"
 import { AccumulatorContract } from "../source/ethereum/AccumulatorContract.js"
 import { EthereumAddress } from "../source/ethereum/EthereumAddress.js"
-import type { NormalizedLeafAppendedEvent } from "../source/ethereum/events.types.js"
+import type { NormalizedDataAppendedEvent } from "../source/ethereum/events.types.js"
 import { IpfsResolver } from "../source/ipfs/IpfsResolver.js"
 import { MerkleMountainRange } from "../source/mmr/MerkleMountainRange.js"
 import type { LeafRecord } from "../source/mmr/types.js"
@@ -37,7 +37,7 @@ function fixture(t: TestContext, lazyLoadEvents = true) {
 	t.mock.method(storage, "stop", () => {})
 	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: account })
 	mockChain(t, contract, storage)
-	const logs: NormalizedLeafAppendedEvent[] = []
+	const logs: NormalizedDataAppendedEvent[] = []
 	const chains = new Map<string, { mmr: MerkleMountainRange; lastBlock: number }>()
 	let latestBlock = 1
 	function chainFor(address: EthereumAddress) {
@@ -64,7 +64,7 @@ function fixture(t: TestContext, lazyLoadEvents = true) {
 			peaks: mmr.peaks.map((cid, index) => ({ cid, height: heights[index] })),
 		}
 	})
-	const getLogs = t.mock.method(contract, "getLeafAppendedLogs", async (from: number, to: number) =>
+	const getLogs = t.mock.method(contract, "getDataAppendedLogs", async (from: number, to: number) =>
 		logs.filter((event) => event.account.toString() === account.toString() && event.blockNumber >= from && event.blockNumber <= to)
 	)
 	const events = new EventCacheService(storage, contract, {
@@ -95,7 +95,7 @@ function fixture(t: TestContext, lazyLoadEvents = true) {
 		const previousPeaks = [...chain.mmr.peaks]
 		await chain.mmr.addLeafWithTrail(leafIndex, payload)
 		const mergeCount = previousPeaks.length + 1 - chain.mmr.peaks.length
-		const event: NormalizedLeafAppendedEvent = {
+		const event: NormalizedDataAppendedEvent = {
 			account: address,
 			leafIndex,
 			payload,
@@ -232,7 +232,7 @@ describe("light client event subscriptions", { concurrency: false, timeout: 5000
 		await f.client.start()
 		const event = await f.append(Uint8Array.of(1))
 		const entered = deferred<void>()
-		const response = deferred<NormalizedLeafAppendedEvent[]>()
+		const response = deferred<NormalizedDataAppendedEvent[]>()
 		f.getLogs.mock.mockImplementationOnce(() => {
 			entered.resolve()
 			return response.promise
