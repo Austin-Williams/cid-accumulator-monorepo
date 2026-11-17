@@ -79,7 +79,6 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 			mstore(add(ptr, 96), payload)
 			mcopy(add(ptr, 128), add(mergeLeftHashes, 32), hashesLength)
 			// Every body element is a full word, so the encoding needs no trailing padding.
-			// The log's emitting address identifies this accumulator.
 			log1(ptr, add(128, hashesLength), eventTopic)
 		}
 	}
