@@ -1,10 +1,10 @@
 # cid-accumulator
 
-This code enables all smart contracts to append 32-byte payloads to their own "CID accumulator".
+This code enables smart contracts to append 32-byte payloads to their own "CID accumulator".
 
 The CID accumulator trustlessly computes a CID (content identifier) that resolves over IPFS to a file containing **all data ever appended to their accumulator**.
 
-Users can make a single ETH RPC call to the `getRootCIDString() external view returns (string memory)` function on that contract to get an IPFS CID, and then make a single call to an IPFS HTTP gateway (e.g. a local Kubo gateway at `http://127.0.0.1:8080/ipfs/<CID>?format=car`) to acquire all data ever appended to their accumulator (as well as all additional data needed to locally verify that they have received the correct data).
+Users can make a single ETH RPC call to the `getRootCIDString()` function on that contract to get an IPFS CID, and then make a single call to an IPFS HTTP gateway (e.g. a local Kubo gateway at `http://127.0.0.1:8080/ipfs/<CID>?format=car`) to downlaod a file containing all data ever appended to the accumulator (as well as all additional data needed to locally verify that they have received the correct data).
 
 It requires no trusted third parties or centralized services from start to finish. It is a fully decentralized system, completely aligned with cypherpunk values. It has no governance, no upgradability, no censorship, no unnecessary token, no "community", no non-profit "labs", no for-profit company, no rent-seeking, nothing. It is simply a free, open source tool to empower users.
 
@@ -43,12 +43,6 @@ In practice, this means that to get all the data payloads from IPFS, you need on
 
 ## How to use the smart contract
 
-Inherit `CIDAccumulator` in your own contract. Replace `YOUR_CONTRACT_ADDRESS` in the client and seeder examples with your deployed contract's address and configure the corresponding Ethereum RPC URL. For local development, deploy your contract to your local chain and use `http://127.0.0.1:8545`.
-
-The canonical Solidity sources live in the root [`contracts/`](contracts/) directory: the [CIDAccumulator base contract](contracts/CIDAccumulator.sol), its [libraries](contracts/libraries/), and the public [ICIDAccumulator interface](contracts/interfaces/ICIDAccumulator.sol). Make contract changes here and point Solidity build or test tooling at this directory.
-
-Compile with Solidity 0.8.38 targeting Osaka. The deployment chain must support the [CLZ opcode](https://eips.ethereum.org/EIPS/eip-7939) used by `MmrLib.mergeCount`.
-
 ```solidity
 import {CIDAccumulator} from "./contracts/CIDAccumulator.sol";
 
@@ -64,9 +58,7 @@ contract YourContract is CIDAccumulator {
 }
 ```
 
-The [CIDAccumulator contract](contracts/CIDAccumulator.sol) maintains one append-only CID accumulator in your contract's own state. All callers of your contract contribute to the same accumulator. There is no need to "register", "initialize", or otherwise set up an accumulator. Your contract appends one payload at a time via the internal `_appendLeaf(bytes32 payload)` function and decides who may trigger it. See [ExampleApplication](contracts/examples/ExampleApplication.sol) for a minimal example.
-
-Each call to `_appendLeaf` causes your contract to emit an event:
+The [CIDAccumulator contract](contracts/CIDAccumulator.sol) maintains an append-only CID accumulator. Each call to `_appendLeaf` causes your contract to emit an event:
 
 ```solidity
 event LeafAppended(
@@ -77,7 +69,7 @@ event LeafAppended(
 );
 ```
 
-For initialized storage, inserts with zero, one, or two merges use approximately 12.9k–16.6k execution gas. See below for measurement settings.
+Most data inserts require between 12.9k and 16.6k gas. See below for more about gas costs.
 
 ## How the off-chain component works
 
@@ -447,14 +439,3 @@ By contrast, for an MMR, each new leaf insertion requires _exactly_ two SSTOREs,
 To view the root CID for an MMR, you have to "bag the peaks" (merge them), which requires at most `log₂(n) + 1` SLOADs (one for the metadata and then one for each peak in the MMR). However, this only ever needs to be done off-chain, so the gas cost is not a concern there.
 
 So the leaf insertions are stored in an MMR, the contract stores only the current peaks of the MMR, and then the "peak bagging" to get the root CID from the peaks is done off-chain.
-
-## Looking for a Maintainer
-
-I love prototyping and getting early working versions of things built, but I do not enjoy maintaining projects or continuing to work on them long after the prototype phase. This project deserves someone who can take it over and make the codebase more mature and robust.
-
-If you are passionate about open source, decentralized systems, and want to take this project to the next level, please consider stepping in! I would love to see this project taken over by someone who wants to make it more robust and easy to use. Please fork it and make it great. If you would like help getting familiar with the codebase, I'd be happy to assist.
-
-## Contract address
-
-Deploy your own contract inheriting `CIDAccumulator`; there is no shared contract address. `YOUR_CONTRACT_ADDRESS` in the examples is a placeholder for your contract's address.
-
