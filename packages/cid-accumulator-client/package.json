@@ -5,7 +5,7 @@
 	"engines": {
 		"node": ">=26.13.1"
 	},
-	"description": "JS/TS client for interacting with CIDAccumulatorSingleton",
+	"description": "JS/TS client for interacting with contracts that inherit CIDAccumulator",
 	"main": "./dist/index.js",
 	"module": "./dist/index.js",
 	"types": "./dist/index.d.ts",

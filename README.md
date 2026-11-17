@@ -1,10 +1,10 @@
 # cid-accumulator
 
-This code enables all smart contracts (and all EOAs) to append arbitrary data to their own "CID accumulator".
+This code enables all smart contracts to append 32-byte payloads to their own "CID accumulator".
 
 The CID accumulator trustlessly computes a CID (content identifier) that resolves over IPFS to a file containing **all data ever appended to their accumulator**.
 
-Users can make a single ETH RPC call to the `getRootCIDString(address account) external view returns (string memory)` function to get an IPFS CID, and then make a single call to an IPFS HTTP gateway (e.g. a local Kubo gateway at `http://127.0.0.1:8080/ipfs/<CID>?format=car`) to acquire all data ever appended to their accumulator (as well as all additional data needed to locally verify that they have received the correct data).
+Users can make a single ETH RPC call to the `getRootCIDString() external view returns (string memory)` function on that contract to get an IPFS CID, and then make a single call to an IPFS HTTP gateway (e.g. a local Kubo gateway at `http://127.0.0.1:8080/ipfs/<CID>?format=car`) to acquire all data ever appended to their accumulator (as well as all additional data needed to locally verify that they have received the correct data).
 
 It requires no trusted third parties or centralized services from start to finish. It is a fully decentralized system, completely aligned with cypherpunk values. It has no governance, no upgradability, no censorship, no unnecessary token, no "community", no non-profit "labs", no for-profit company, no rent-seeking, nothing. It is simply a free, open source tool to empower users.
 
@@ -29,7 +29,7 @@ Typically, app developers rely on centralized services to provide the data direc
 
 Storing the data on IPFS solves half the problem -- it lets users get the data they need even when the centralized service goes offline. All they need is an IPFS CID (Content Identifier) for the data and they can fetch all the data they need from IPFS. But how can users learn what CID to use without having to rely on some trusted third party who could censor, lie, or go offline?
 
-CID accumulators solve the second half of the problem by having _the smart contract itself_ compute and store an IPFS CID that points to a file containing all data ever appended to the account's accumulator. The contract maintains this CID as an accumulator, updating it each time your contract appends new data. Users can fetch everything they need directly from IPFS, with full confidence that they have the right CID — because _the smart contract itself_ computed it.
+CID accumulators solve the second half of the problem by having _the smart contract itself_ compute and store an IPFS CID that points to a file containing all data ever appended to the contract's accumulator. The contract maintains this CID as an accumulator, updating it each time your contract appends new data. Users can fetch everything they need directly from IPFS, with full confidence that they have the right CID — because _the smart contract itself_ computed it.
 
 ## How it works
 
@@ -43,51 +43,45 @@ In practice, this means that to get all the data payloads from IPFS, you need on
 
 ## How to use the smart contract
 
-The mainnet contract address is `NOT_YET_DEPLOYED`. Replace this placeholder in examples with a deployed contract address and configure the corresponding Ethereum RPC URL. For local development, deploy the contract to your local chain and use `http://127.0.0.1:8545`.
+Inherit `CIDAccumulator` in your own contract. Replace `YOUR_CONTRACT_ADDRESS` in the client and seeder examples with your deployed contract's address and configure the corresponding Ethereum RPC URL. For local development, deploy your contract to your local chain and use `http://127.0.0.1:8545`.
 
-The canonical Solidity sources live in the root [`contracts/`](contracts/) directory: the [singleton contract](contracts/singleton/CIDAccumulatorSingleton.sol), its [libraries](contracts/libraries/), and the public [ICIDAccumulatorSingleton interface](contracts/interfaces/ICIDAccumulatorSingleton.sol). Make contract changes here and point Solidity build or test tooling at this directory.
+The canonical Solidity sources live in the root [`contracts/`](contracts/) directory: the [CIDAccumulator base contract](contracts/CIDAccumulator.sol), its [libraries](contracts/libraries/), and the public [ICIDAccumulator interface](contracts/interfaces/ICIDAccumulator.sol). Make contract changes here and point Solidity build or test tooling at this directory.
 
 Compile with Solidity 0.8.38 targeting Osaka. The deployment chain must support the [CLZ opcode](https://eips.ethereum.org/EIPS/eip-7939) used by `MmrLib.mergeCount`.
 
 ```solidity
-interface ICIDAccumulator { function appendLeaf(bytes calldata payload) external; }
+import {CIDAccumulator} from "./contracts/CIDAccumulator.sol";
 
-contract YourContract {
-  // Replace NOT_YET_DEPLOYED with the address of your deployed CIDAccumulatorSingleton
-  ICIDAccumulator private constant accumulator = ICIDAccumulator(NOT_YET_DEPLOYED);
-
-  function yourFunction() external {
-    // Create any bytes payload you want (e.g., deposit commitment, pool initialization data, etc.)
-    bytes memory payload = abi.encode("whatever data you want");
+contract YourContract is CIDAccumulator {
+  function yourFunction(bytes32 payload) external {
+    // Apply your application's checks here (e.g., validate a deposit commitment).
 
     // Append it to your accumulator
-    accumulator.appendLeaf(payload);
+    _appendLeaf(payload);
 
    // That's it!
   }
 }
 ```
 
-The [CIDAccumulatorSingleton contract](contracts/singleton/CIDAccumulatorSingleton.sol) maintains a unique CID accumulator for every Ethereum address. Each accumulator is namespaced by `msg.sender` and is append-only. There is no need to "register", "initialize", or otherwise set up an accumulator. Once the singleton is deployed, you can append data via `appendLeaf(bytes calldata payload)` without per-account setup.
+The [CIDAccumulator contract](contracts/CIDAccumulator.sol) maintains one append-only CID accumulator in your contract's own state. All callers of your contract contribute to the same accumulator. There is no need to "register", "initialize", or otherwise set up an accumulator. Your contract appends one payload at a time via the internal `_appendLeaf(bytes32 payload)` function and decides who may trigger it. See [ExampleApplication](contracts/examples/ExampleApplication.sol) for a minimal example.
 
-Each call to `appendLeaf` causes the accumulator contract to emit an event:
+Each call to `_appendLeaf` causes your contract to emit an event:
 
 ```solidity
 event LeafAppended(
-  // your account address
-  address indexed account,
   // low 32 bits: leaf index; high 32 bits: previous insertion block
   uint64 metadata,
-  // raw payload followed by the 32-byte merge hashes needed for CID walkback
+  // 32-byte payload followed by the 32-byte merge hashes needed for CID walkback
   bytes payloadAndMergeHashes
 );
 ```
 
-For 32-byte payloads and initialized storage, inserts with zero, one, or two merges use approximately 14.0k–17.7k execution gas. See below for measurement settings and total transaction costs.
+For initialized storage, inserts with zero, one, or two merges use approximately 12.9k–16.6k execution gas. See below for measurement settings.
 
 ## How the off-chain component works
 
-To get the root CID for your account's data, call either the `getRootCID(address account) external view returns (bytes memory rawCIDv1)` function (for the raw CIDv1 byte sequence) or the `getRootCIDString(address account) external view returns (string memory)` (for the base32-encoded CID string).
+To get the root CID for your contract's data, call either its `getRootCID() external view returns (bytes memory)` function (for the raw CIDv1 byte sequence) or its `getRootCIDString() external view returns (string memory)` (for the base32-encoded CID string).
 
 Then use that root CID to download the data from your IPFS HTTP gateway. For example, with Kubo running locally: `http://127.0.0.1:8080/ipfs/<rootCID>?format=car`.
 
@@ -95,11 +89,11 @@ To open a CID manually in a browser, use `https://inbrowser.link/ipfs/<rootCID>`
 
 But what if that CID is not available on IPFS?
 
-The CIDAccumulatorSingleton contract is designed so you can efficiently compute the _previous_ root CID from the _current_ root CID plus the small amount of data emitted by the contract during the last data insert. This allows you to efficiently "walk back" from the current root CID through previous root CIDs until you find one that is resolvable via IPFS. Each 'step back' to an older root CID requires just one very lightweight ETH RPC call (no need to scan large ranges of blocks; you ask the RPC for a single event from a single specific block), and one call to the IPFS gateway to see if it can resolve the CID.
+The CIDAccumulator contract is designed so you can efficiently compute the _previous_ root CID from the _current_ root CID plus the small amount of data emitted by the contract during the last data insert. This allows you to efficiently "walk back" from the current root CID through previous root CIDs until you find one that is resolvable via IPFS. Each 'step back' to an older root CID requires just one very lightweight ETH RPC call (no need to scan large ranges of blocks; you ask the RPC for a single event from a single specific block), and one call to the IPFS gateway to see if it can resolve the CID.
 
 A nice feature of this CID walkback is that, once you find an older root CID that is available on IPFS, you'll have already collected all the data between it and the current root CID (because you gathered it as you "walked back"). So you'll be fully synced.
 
-(In the worst case, if you never find any of the root CIDs on IPFS, you'll eventually walk all the way back to the contract deployment block. If that happens, you'll have fully synced using event data alone—with no help from IPFS. This worst case is equivalent to what all users normally face today when not using this CID Accumulator pattern and not using any trusted third parties.)
+(In the worst case, if you never find any of the root CIDs on IPFS, you'll eventually walk all the way back to the first append's block. If that happens, you'll have fully synced using event data alone—with no help from IPFS. This worst case is equivalent to what all users normally face today when not using this CID Accumulator pattern and not using any trusted third parties.)
 
 If you don't want to write all that off-chain code yourself, you can just use the `LightClient` class from this repo. It handles all of that for you.
 
@@ -108,7 +102,7 @@ If you don't want to write all that off-chain code yourself, you can just use th
 The light client is a lightweight, universal JS/TS class that works in modern browsers and Node.js (26.13.1 or later). It is intended to be used in decentralized UIs.
 
 The light client:
-- Collects and verifies all payload data for a single ethereum address.
+- Collects and verifies all payload data for a single contract.
 - Stores the data in a local database (IndexedDB in the browser, or as a JSON file in Nodejs).
 - Makes the payload data easy to access so you can use it in your UI.
 
@@ -120,6 +114,8 @@ npm install cid-accumulator-client
 
 ### Usage
 
+For runnable examples, see the [Node script](packages/cid-accumulator-client/examples/readAccumulator.ts) and [browser example](packages/light-client-browser-example/).
+
 ```typescript
 // =============
 //    SETUP
@@ -127,10 +123,10 @@ npm install cid-accumulator-client
 
 import { createLightClient } from 'cid-accumulator-client'
 
-// Create a light client for a specific account
-const client = await createLightClient('0xYourEthereumAddress', {
+// Create a light client for your deployed contract
+const client = await createLightClient({
   accumulatorContractConfig: {
-    accumulatorContractAddress: 'NOT_YET_DEPLOYED', // Replace with your deployed contract address
+    accumulatorContractAddress: 'YOUR_CONTRACT_ADDRESS', // Replace with your deployed contract address
   },
 })
 
@@ -147,9 +143,11 @@ await client.start()
 const highestLeafIndexNumber = await client.getHighestIndex()
 
 // Get the ith payload as a hex string (no 0x prefix)
+const i = 0
 const payloadHexString = await client.getPayload(i)
 
 // Get the payloads in the range [i, j] as hex strings
+const j = 10
 const payloadsHexStringArray = await client.getPayloadInRange(i, j)
 
 // iterate over all payloads using the async iterator
@@ -166,9 +164,14 @@ const matchingPayloadsArray = payloadIndexMap.get('beef')
 // Download all payloads to a file
 const downloadedFilePath = await client.downloadAllPayloads()
 
-// Subscribe to new LeafAppended events
-const unsubscribe = client.subscribe((newLeaf) => {
-  console.log(`New leaf appended: index ${newLeaf.leafIndex}`)
+// Follow new leaves and any reorganization of unfinalized history
+const unsubscribe = client.subscribe((event) => {
+  if (event.type === 'rollback') {
+    // Remove your application's indexed leaves at and above this index.
+    console.log(`Discard leaves from index ${event.firstInvalidLeafIndex}`)
+    return
+  }
+  console.log(`New leaf appended: index ${event.record.leafIndex}`)
 })
 // When you no longer need the subscription
 unsubscribe()
@@ -182,7 +185,7 @@ await client.stop()
 ```
 
 On `client.start()`, the light client will:
-- Get the account's latest root CID from the accumulator contract and attempt to resolve it via the IPFS gateway
+- Get the contract's latest root CID and attempt to resolve it via the IPFS gateway
 - If it resolves the root CID then it is fully synced and ready to go!
 - Otherwise it will fetch one past event via the ETH RPC to compute the prior root CID, and attempt to resolve it via the IPFS gateway.
 - It will continue "walking backwards" through prior root CIDs until it can resolve one via the IPFS gateway (or else fully syncs from events).
@@ -202,7 +205,7 @@ const config = {
   nodeDbPath: "./db/cid-accumulator-light-client.json",
   browserDbName: "cid-accumulator",
   accumulatorContractConfig: {
-    accumulatorContractAddress: "NOT_YET_DEPLOYED",
+    accumulatorContractAddress: "YOUR_CONTRACT_ADDRESS",
     ethereumHttpRpcUrl: "https://ethereum-rpc.publicnode.com",
     rateLimiterOptions: {
       intervalMs: 2000,
@@ -226,7 +229,7 @@ const config = {
   }
 }
 
-const client = await createLightClient("0xYourEthereumAddress", config)
+const client = await createLightClient(config)
 await client.start()
 
 ```
@@ -234,13 +237,15 @@ await client.start()
 Both client factories accept separate storage settings for each environment:
 
 - `nodeDbPath` selects the database file in Node.js.
-- `browserDbName` selects the IndexedDB database in browsers. Its default is `cid-accumulator`. Clients on the same browser origin share storage when they use the same name; choose distinct names for different chains or accumulator contracts.
+- `browserDbName` selects the IndexedDB database in browsers. Its default is `cid-accumulator`. Clients on the same browser origin share storage when they use the same name.
+
+Cache entries in either database are separated by chain ID and contract address. Independently running processes or browser tabs should use separate database files or names.
 
 ## The Seeder
 
 The Seeder is what pins accumulator data to IPFS. Anyone can run a seeder, and nobody needs to trust a seeder.
 
-Accumulator data will not be available via IPFS if nobody pins it. This is very similar to how seeders are necessary in BitTorrent. At least one person in the world needs to collect the data from the CIDAccumulatorSingleton contract events and pin it to IPFS. (Hopefully, many people will run seeders.) Nobody needs to trust the seeders because they cannot lie about the contents of the data.
+Accumulator data will not be available via IPFS if nobody pins it. This is very similar to how seeders are necessary in BitTorrent. At least one person in the world needs to collect the data from your contract's events and pin it to IPFS. (Hopefully, many people will run seeders.) Nobody needs to trust the seeders because they cannot lie about the contents of the data.
 
 If you don't want to write your own seeder code, you can use the `Seeder` class from this repo, which handles everything for you.
 
@@ -261,10 +266,10 @@ There are two ways to run a seeder.
 You can clone this repo and run the seeder from the command line by specifying your deployed contract address:
 
 ```bash
-git clone https://github.com/Austin-Williams/cid-accumulator-singleton.git
-cd cid-accumulator-singleton
+git clone https://github.com/Austin-Williams/cid-accumulator-monorepo.git
+cd cid-accumulator-monorepo
 npm ci
-npm run seeder --workspace cid-accumulator-client -- --accumulatorContractAddress=NOT_YET_DEPLOYED
+npm run seeder --workspace cid-accumulator-client -- --accumulatorContractAddress=YOUR_CONTRACT_ADDRESS
 ```
 
 Run `npm ci` from the repository root to install all workspace dependencies using the committed `package-lock.json`.
@@ -272,17 +277,14 @@ Run `npm ci` from the repository root to install all workspace dependencies usin
 You can also run it with custom options. E.g.:
 
 ```bash
-npm run seeder --workspace cid-accumulator-client -- --accumulatorContractAddress=NOT_YET_DEPLOYED --remotePin=true --ethereumHttpRpcUrl=https://mainnet.infura.io/v3/<YourInfuraApiKey>
+npm run seeder --workspace cid-accumulator-client -- --accumulatorContractAddress=YOUR_CONTRACT_ADDRESS --remotePin=true --ethereumHttpRpcUrl="https://mainnet.infura.io/v3/<YourInfuraApiKey>"
 ```
 
 **Available options (contract address required; other defaults shown):**
 
 ```bash
 The Ethereum address of your deployed accumulator contract (required)
---accumulatorContractAddress=NOT_YET_DEPLOYED
-
-JSON array of Ethereum addresses to track (leave empty to pin for all accounts)
---specificAccountsOnly='[]'
+--accumulatorContractAddress=YOUR_CONTRACT_ADDRESS
 
 Enable remote pinning (set to true to pin all CIDs to all remote pinning services set up on your IPFS node).
 Remote pinning is ideal for user UX and UI performance, but it usually costs money, so the default is false.
@@ -301,7 +303,7 @@ Path to the Node database file
 --nodeDbPath=./db/cid-accumulator-seeder.json
 ```
 
-The seeder appends `-<accumulatorContractAddress>` to the Node database path.
+Each seeder follows one contract. Cache entries are separated by chain ID and contract address within the database.
 
 ### Run a seeder programmatically
 
@@ -314,7 +316,7 @@ import { createSeeder } from 'cid-accumulator-client';
 // Create a seeder for your deployed accumulator contract
 const seeder = await createSeeder({
   accumulatorContractConfig: {
-    accumulatorContractAddress: 'NOT_YET_DEPLOYED', // Replace with your deployed contract address
+    accumulatorContractAddress: 'YOUR_CONTRACT_ADDRESS', // Replace with your deployed contract address
   },
 })
 
@@ -334,7 +336,7 @@ const config: SeederConfigUserInput = {
   nodeDbPath: "./db/cid-accumulator-seeder.json",
   browserDbName: "cid-accumulator",
   accumulatorContractConfig: {
-    accumulatorContractAddress: "NOT_YET_DEPLOYED",
+    accumulatorContractAddress: "YOUR_CONTRACT_ADDRESS",
     ethereumHttpRpcUrl: "http://127.0.0.1:8545",
     rateLimiterOptions: {
       intervalMs: 10,
@@ -343,15 +345,9 @@ const config: SeederConfigUserInput = {
       capDelay: 5000,
     },
   },
-  accountRegistryServiceConfig: {
-    specificAccountsOnly: [], // leave empty to pin for all accounts
-    pollingIntervalMs: 12000,
-    batchSize: 10000,
-  },
   eventCacheServiceConfig: {
     lazyLoadEvents: true,
     pollingIntervalMs: 5000,
-    specificAccountsOnly: [], // leave empty to pin for all accounts
   },
   ipfsResolverConfig: {
     gatewayUrl:  "http://127.0.0.1:8080",
@@ -371,7 +367,7 @@ const config: SeederConfigUserInput = {
       baseDelay: 100,
       capDelay: 10000,},
   },
-  syncCheckIntervalMs: 60000 // how often to check the status of remote pins
+  syncCheckIntervalMs: 60000 // how often to check the pinned accumulator's root and retry pinning
 }
 
 const seeder = await createSeeder(config)
@@ -384,24 +380,26 @@ await seeder.stop()
 
 ## Gas Costs
 
-The execution gas cost of `appendLeaf` depends on how many **merge steps** are triggered by that particular insert. Most inserts (75% of them) require zero or one peak update and are cheap (cheaper than a fresh SSTORE). Occasionally, an insert will trigger a chain of merges — and this is what increases gas (for that insert only). Gas estimations below assume a 32-byte payload, but the contract can handle arbitrary length bytes.
+The execution gas cost of `_appendLeaf` depends on how many **merge steps** are triggered by that particular insert. Most inserts (75% of them) require zero or one peak update and are cheap (cheaper than a fresh SSTORE). Occasionally, an insert will trigger a chain of merges — and this is what increases gas (for that insert only). Gas estimations below use a 32-byte payload.
+
+Measured with Solidity 0.8.38, optimizer 200 runs, Osaka, using `ExampleApplication.record(bytes32)` with cold storage accesses and previously used peak slots. Figures exclude transaction intrinsic gas and any additional application logic.
 
 | Merge Depth | Description                      | **Approx Gas** |
 | ----------- | -------------------------------- | -------------- |
-| 0           | No merges (new peak at height 0) | ≈ 14.0k gas    |
-| 1           | Merge with 1 peak  → height 1    | ≈ 14.8k gas    |
-| 2           | Merge with 2 peaks → height 2    | ≈ 17.7k gas    |
-| 3           | Merge with 3 peaks → height 3    | ≈ 20.6k gas    |
-| 4           | Merge with 4 peaks → height 4    | ≈ 23.5k gas    |
-| 5           | Merge with 5 peaks → height 5    | ≈ 26.3k gas    |
-| 6           | Merge with 6 peaks → height 6    | ≈ 29.2k gas    |
-| 7           | Merge with 7 peaks → height 7    | ≈ 32.1k gas    |
-| 8           | Merge with 8 peaks → height 8    | ≈ 34.9k gas    |
-| 9           | Merge with 9 peaks → height 9    | ≈ 37.8k gas    |
-| 10          | Merge with 10 peaks → height 10  | ≈ 40.7k gas    |
+| 0           | No merges (new peak at height 0) | ≈ 12.9k gas    |
+| 1           | Merge with 1 peak  → height 1    | ≈ 13.7k gas    |
+| 2           | Merge with 2 peaks → height 2    | ≈ 16.6k gas    |
+| 3           | Merge with 3 peaks → height 3    | ≈ 19.5k gas    |
+| 4           | Merge with 4 peaks → height 4    | ≈ 22.3k gas    |
+| 5           | Merge with 5 peaks → height 5    | ≈ 25.2k gas    |
+| 6           | Merge with 6 peaks → height 6    | ≈ 28.1k gas    |
+| 7           | Merge with 7 peaks → height 7    | ≈ 31.0k gas    |
+| 8           | Merge with 8 peaks → height 8    | ≈ 33.8k gas    |
+| 9           | Merge with 9 peaks → height 9    | ≈ 36.7k gas    |
+| 10          | Merge with 10 peaks → height 10  | ≈ 39.6k gas    |
 
 
-> ℹ️ Most inserts (87.5%) fall in the **14.0K–17.7K gas** range. Deeper merges are **exponentially rare**:
+> ℹ️ Most inserts (87.5%) fall in the **12.9K–16.6K gas** range. Deeper merges are **exponentially rare**:
 >
 > - Merge depth 3 happens once every 16 inserts
 > - Merge depth 6 happens once every 128 inserts
@@ -411,26 +409,26 @@ For example, if you insert `2^20` entries (just over 1 million), here’s how of
 
 | Merge Depth | Inserts (%) | **Approx Gas** |
 | ----------- | ----------- | -------------- |
-| 0           | 50.0%       | ≈ 14 .0 k      |
-| 1           | 25.0%       | ≈ 14 .8 k      |
-| 2           | 12.5%       | ≈ 17 .7 k      |
-| 3           | 6.25%       | ≈ 20 .6 k      |
-| 4           | 3.125%      | ≈ 23 .5 k      |
-| 5           | 1.5625%     | ≈ 26 .3 k      |
-| 6           | 0.78125%    | ≈ 29 .2 k      |
-| 7           | 0.390625%   | ≈ 32 .1 k      |
-| 8           | 0.1953125%  | ≈ 34 .9 k      |
-| 9           | 0.09765625% | ≈ 37 .8 k      |
-| 10          | 0.048828125%| ≈ 40 .7 k      |
+| 0           | 50.0%       | ≈ 12 .9 k      |
+| 1           | 25.0%       | ≈ 13 .7 k      |
+| 2           | 12.5%       | ≈ 16 .6 k      |
+| 3           | 6.25%       | ≈ 19 .5 k      |
+| 4           | 3.125%      | ≈ 22 .3 k      |
+| 5           | 1.5625%     | ≈ 25 .2 k      |
+| 6           | 0.78125%    | ≈ 28 .1 k      |
+| 7           | 0.390625%   | ≈ 31 .0 k      |
+| 8           | 0.1953125%  | ≈ 33 .8 k      |
+| 9           | 0.09765625% | ≈ 36 .7 k      |
+| 10          | 0.048828125%| ≈ 39 .6 k      |
 
 
 > ✅ Even after a million inserts, **87.5%** of them will require **two or fewer merges**, keeping gas costs low and consistent.
 
-So the gas cost is determined only by that insert’s merge activity — **not** by the total size of the data set.
+So the steady-state gas cost is determined only by that insert’s merge activity — **not** by the total size of the data set.
 
-The mean steady-state cost per insert is ≈ 15.9k gas.
+The mean steady-state cost per insert is ≈ 14.8k gas.
 
-Note: The very first time an address appends data to the accumulator, the execution cost is about 49.3k gas because two empty storage slots need to be unzeroed when initializing the account's accumulator.
+Note: The very first time your contract appends data to the accumulator, the execution cost is about 47.2k gas because two empty storage slots need to be unzeroed when initializing the contract's accumulator. Later inserts that use a previously untouched peak slot cost about 17.1k gas more than the table above.
 
 ## How the CID is computed by the smart contract (for nerds)
 
@@ -444,7 +442,7 @@ IPFS can work with any DAG structure, and thus any shape of Merkle tree. For thi
 
 To illustrate the difference in gas cost between using an MMR vs a typical balanced, binary Merkle tree, consider the following. Each new leaf insertion into a balanced binary Merkle tree requires `log₂(n)` SLOADs and `log₂(n)` SSTOREs, where n is the number of leaves. So for example, the 100kth leaf insertion would require 17 SLOADs (2100 gas each) and 17 SSTOREs (5000 gas each) operations, costing a total of 120,700 gas. (We are considering only the cost of SLOADs and SSTOREs here, not any other memory/compute overhead, which is approximately equal between the two examples).
 
-By contrast, for an MMR, each new leaf insertion requires _exactly_ two SSTOREs, and _at most_ `log₂(n) + 1` SLOADs (one to load the metadata, and then one for each merge that occurs). Statistically, over 87% of inserts require three or fewer SLOADs (one to load the metadata, and two or fewer to load the peaks that are merged). The measured gas cost depends on the merge depth, storage initialization, and payload size; see the gas table above.
+By contrast, for an MMR, each new leaf insertion requires _exactly_ two SSTOREs, and _at most_ `log₂(n) + 1` SLOADs (one to load the metadata, and then one for each merge that occurs). Statistically, over 87% of inserts require three or fewer SLOADs (one to load the metadata, and two or fewer to load the peaks that are merged). The measured gas cost depends on the merge depth and storage initialization; see the gas table above.
 
 To view the root CID for an MMR, you have to "bag the peaks" (merge them), which requires at most `log₂(n) + 1` SLOADs (one for the metadata and then one for each peak in the MMR). However, this only ever needs to be done off-chain, so the gas cost is not a concern there.
 
@@ -458,6 +456,5 @@ If you are passionate about open source, decentralized systems, and want to take
 
 ## Contract address
 
-Ethereum mainnet:
-`NOT_YET_DEPLOYED`
+Deploy your own contract inheriting `CIDAccumulator`; there is no shared contract address. `YOUR_CONTRACT_ADDRESS` in the examples is a placeholder for your contract's address.
 

@@ -4,9 +4,9 @@ Universal JavaScript/TypeScript client for interacting with smart contracts that
 
 ## Overview
 
-The CID Accumulator Client is off-chain code for fetching and verifying data for users of the CIDAccumulatorSingleton contract on Ethereum. It provides a light client, ideal for retrieving data (for example, in a browser UI or lightweight Node.js application). It also offers a "seeder" client (Node.js only) that can be kept running to pin all the accumulator's payload data to IPFS.
+The CID Accumulator Client is off-chain code for fetching and verifying data for users of contracts that inherit CIDAccumulator on Ethereum. It provides a light client, ideal for retrieving data (for example, in a browser UI or lightweight Node.js application). It also offers a "seeder" client (Node.js only) that can be kept running to pin all the accumulator's payload data to IPFS.
 
-The mainnet contract address is `NOT_YET_DEPLOYED`. Replace this placeholder in examples with a deployed contract address and configure the corresponding Ethereum RPC URL. For local development, deploy the contract to your local chain and use `http://127.0.0.1:8545`.
+Replace `YOUR_CONTRACT_ADDRESS` in examples with your application's deployed contract address and configure the corresponding Ethereum RPC URL. For local development, deploy the contract to your local chain and use `http://127.0.0.1:8545`.
 
 The client creates and verifies CIDv1 DAG-CBOR blocks using Keccak-256 (multihash code `0x1b`). Kubo uploads use `mhtype=keccak-256`.
 
@@ -23,7 +23,7 @@ npm install cid-accumulator-client
 
 ## Light Client
 
-The light client retrieves all payload data for a single Ethereum address. It can be used in a browser or lightweight Node.js application.
+The light client retrieves all payload data for a single application contract that inherits CIDAccumulator. It can be used in a browser or lightweight Node.js application. See [readAccumulator.ts](examples/readAccumulator.ts) for a runnable Node.js example.
 
 ```typescript
 // =============
@@ -32,10 +32,10 @@ The light client retrieves all payload data for a single Ethereum address. It ca
 
 import { createLightClient } from 'cid-accumulator-client'
 
-// Create a light client for a specific account
-const client = await createLightClient('0xYourEthereumAddress', {
+// Create a light client for your application's accumulator
+const client = await createLightClient({
   accumulatorContractConfig: {
-    accumulatorContractAddress: 'NOT_YET_DEPLOYED', // Replace with your deployed contract address
+    accumulatorContractAddress: 'YOUR_CONTRACT_ADDRESS', // Replace with your deployed contract address
   },
 })
 
@@ -52,9 +52,11 @@ await client.start()
 const highestLeafIndexNumber = await client.getHighestIndex()
 
 // Get the ith payload as a hex string (without the 0x prefix)
+const i = 0
 const payloadHexString = await client.getPayload(i)
 
 // Get the payloads in the range [i, j] as hex strings
+const j = 10
 const payloadsHexStringArray = await client.getPayloadInRange(i, j)
 
 // Iterate over all payloads using the async iterator
@@ -92,19 +94,19 @@ await client.stop();
 ```
 
 When you call `client.start()`, the light client will:
-- Retrieve the account's latest root CID from the accumulator contract and attempt to resolve it via the IPFS gateway.
+- Retrieve the contract's latest root CID and attempt to resolve it via the IPFS gateway.
 - If it resolves the root CID, it is fully synced and ready to go!
 - Otherwise, it will fetch the previous event via the Ethereum RPC to compute the prior root CID and attempt to resolve it via the IPFS gateway.
 - It will continue "walking backwards" through prior root CIDs until it can resolve one via the IPFS gateway (or until it fully syncs from events).
 - Once fully synced, it will poll for new events to stay updated and notify any subscribers.
 
-Subscriptions deliver `append` and `rollback` events in order. A rollback invalidates the affected account's leaves at and above `firstInvalidLeafIndex`; applications maintaining their own index must discard that suffix before applying subsequent appends. This replaces the previous callback that received a leaf record directly. Consumers doing asynchronous indexing should process these notifications in order.
+Subscriptions deliver `append` and `rollback` events in order. A rollback invalidates the contract's leaves at and above `firstInvalidLeafIndex`; applications maintaining their own index must discard that suffix before applying subsequent appends. Consumers doing asynchronous indexing should process these notifications in order.
 
 Subscriptions deliver live notifications. After starting or resuming a stopped client, await synchronization and initialize your application's index from the verified cached payloads. Another service sharing the database may already have repaired a reorganization while that client was stopped.
 
 The client tracks the current tip and uses finalized blocks only to prune rollback bookkeeping. RPC providers must support block-hash state/log queries and the `finalized` block tag. Reorganization recovery also rewinds event discovery and the seeder's MMR. Already verified CID-addressed IPFS blocks remain reusable.
 
-On the first run with an older cache that has no block-hash checkpoints, the client validates its cached prefix against finalized state and refetches unverified data. Interrupted recovery resumes before cached data is exposed. Services sharing a database coordinate recovery within one JavaScript context; independently running processes or browser tabs should use separate database namespaces.
+When a cache has no block-hash checkpoints, the client validates its cached prefix against finalized state and refetches unverified data. Interrupted recovery resumes before cached data is exposed. Services sharing a database coordinate recovery within one JavaScript context; independently running processes or browser tabs should use separate database files or names.
 
 Light clients can use a free-tier public Ethereum RPC provider (e.g., Infura, Alchemy) and a local or hosted IPFS HTTP gateway. With that in mind, the client has been optimized to minimize the number and "weight" of RPC calls made to Ethereum and IPFS gateways. It also includes built-in rate limiting with automatic back-off and retries to prevent being blocked by public RPCs and gateways.
 
@@ -119,7 +121,7 @@ const config = {
   nodeDbPath: "./db/cid-accumulator-light-client.json",
   browserDbName: "cid-accumulator",
   accumulatorContractConfig: {
-    accumulatorContractAddress: "NOT_YET_DEPLOYED",
+    accumulatorContractAddress: "YOUR_CONTRACT_ADDRESS",
     ethereumHttpRpcUrl: "https://ethereum-rpc.publicnode.com",
     rateLimiterOptions: {
       intervalMs: 2000,
@@ -143,7 +145,7 @@ const config = {
   }
 }
 
-const client = await createLightClient("0xYourEthereumAddress", config)
+const client = await createLightClient(config)
 await client.start()
 
 ```
@@ -151,13 +153,15 @@ await client.start()
 Both client factories accept separate storage settings for each environment:
 
 - `nodeDbPath` selects the database file in Node.js.
-- `browserDbName` selects the IndexedDB database in browsers. Its default is `cid-accumulator`. Clients on the same browser origin share storage when they use the same name; choose distinct names for different chains or accumulator contracts.
+- `browserDbName` selects the IndexedDB database in browsers. Its default is `cid-accumulator`. Clients on the same browser origin share storage when they use the same name.
+
+Cached data is separated by the RPC's reported chain ID and the application contract's address, so different chains and contracts can share a database. Different RPC providers for the same chain and contract share the same cache.
 
 ## Seeder
 
 The Seeder is responsible for pinning accumulator data to IPFS. Anyone can run a seeder, and there is no need to trust a seeder.
 
-Accumulator data will not be available via IPFS unless someone pins it. This is similar to how seeders are necessary in BitTorrent. At least one person needs to collect the data from the CIDAccumulatorSingleton contract events and pin them to IPFS (ideally, many people will run seeders). You do not need to trust the seeders because they cannot alter the contents of the data.
+Accumulator data will not be available via IPFS unless someone pins it. This is similar to how seeders are necessary in BitTorrent. At least one person needs to collect the data from the application contract's events and pin them to IPFS (ideally, many people will run seeders). You do not need to trust the seeders because they cannot alter the contents of the data.
 
 If you do not want to write your own seeder code, you can use the `Seeder` class from this repo, which handles everything for you.
 
@@ -176,10 +180,10 @@ There are two ways to run a seeder.
 You can clone this repo and run the seeder from the command line by specifying your deployed contract address:
 
 ```bash
-git clone https://github.com/Austin-Williams/cid-accumulator-singleton.git
-cd cid-accumulator-singleton
+git clone https://github.com/Austin-Williams/cid-accumulator-monorepo.git
+cd cid-accumulator-monorepo
 npm ci
-npm run seeder --workspace cid-accumulator-client -- --accumulatorContractAddress=NOT_YET_DEPLOYED
+npm run seeder --workspace cid-accumulator-client -- --accumulatorContractAddress=YOUR_CONTRACT_ADDRESS
 ```
 
 Run `npm ci` from the repository root to install all workspace dependencies using the committed `package-lock.json`.
@@ -187,17 +191,14 @@ Run `npm ci` from the repository root to install all workspace dependencies usin
 You can also run it with custom options. For example:
 
 ```bash
-npm run seeder --workspace cid-accumulator-client -- --accumulatorContractAddress=NOT_YET_DEPLOYED --remotePin=true --ethereumHttpRpcUrl=https://mainnet.infura.io/v3/<YourInfuraApiKey>
+npm run seeder --workspace cid-accumulator-client -- --accumulatorContractAddress=YOUR_CONTRACT_ADDRESS --remotePin=true --ethereumHttpRpcUrl="https://mainnet.infura.io/v3/<YourInfuraApiKey>"
 ```
 
 **Available options (contract address required; other defaults shown):**
 
 ```bash
 The Ethereum address of your deployed accumulator contract (required)
---accumulatorContractAddress=NOT_YET_DEPLOYED
-
-JSON array of Ethereum addresses to track (leave empty to pin for all accounts)
---specificAccountsOnly='[]'
+--accumulatorContractAddress=YOUR_CONTRACT_ADDRESS
 
 Enable remote pinning (set to true to pin all CIDs to all remote pinning services set up on your IPFS node).
 Pinning remotely is ideal for user UX and UI performance, but usually costs money, so we default to false.
@@ -216,7 +217,7 @@ Path to the Node database file
 --nodeDbPath=./db/cid-accumulator-seeder.json
 ```
 
-The seeder appends `-<accumulatorContractAddress>` to the Node database path.
+Each seeder follows one application contract. The Node database path is used as supplied; its cached data is separated by chain ID and contract address.
 
 ### Run a seeder programmatically
 
@@ -229,7 +230,7 @@ import { createSeeder } from 'cid-accumulator-client';
 // Create a seeder for your deployed accumulator contract
 const seeder = await createSeeder({
   accumulatorContractConfig: {
-    accumulatorContractAddress: 'NOT_YET_DEPLOYED', // Replace with your deployed contract address
+    accumulatorContractAddress: 'YOUR_CONTRACT_ADDRESS', // Replace with your deployed contract address
   },
 })
 
@@ -249,7 +250,7 @@ const config: SeederConfigUserInput = {
   nodeDbPath: "./db/cid-accumulator-seeder.json",
   browserDbName: "cid-accumulator",
   accumulatorContractConfig: {
-    accumulatorContractAddress: "NOT_YET_DEPLOYED",
+    accumulatorContractAddress: "YOUR_CONTRACT_ADDRESS",
     ethereumHttpRpcUrl: "http://127.0.0.1:8545",
     rateLimiterOptions: {
       intervalMs: 10,
@@ -258,15 +259,9 @@ const config: SeederConfigUserInput = {
       capDelay: 5000,
     },
   },
-  accountRegistryServiceConfig: {
-    specificAccountsOnly: [], // leave empty to pin for all accounts
-    pollingIntervalMs: 12000,
-    batchSize: 10000,
-  },
   eventCacheServiceConfig: {
     lazyLoadEvents: true,
     pollingIntervalMs: 5000,
-    specificAccountsOnly: [], // leave empty to pin for all accounts
   },
   ipfsResolverConfig: {
     gatewayUrl:  "http://127.0.0.1:8080",
@@ -286,7 +281,7 @@ const config: SeederConfigUserInput = {
       baseDelay: 100,
       capDelay: 10000,},
   },
-  syncCheckIntervalMs: 60000 // how often to check on the status of remote pins
+  syncCheckIntervalMs: 60000 // how often to check the pinned accumulator against the current on-chain root
 }
 
 const seeder = await createSeeder(config)
@@ -298,7 +293,7 @@ await seeder.stop()
 
 ## Contract Addresses
 
-- Mainnet: `NOT_YET_DEPLOYED`
+- Your application's mainnet deployment: `YOUR_CONTRACT_ADDRESS`
 
 ## License
 
