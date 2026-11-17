@@ -1,5 +1,4 @@
 import { getChainState, type ChainState, type ChainSnapshot } from "./ChainState.js"
-import { EthereumAddress } from "../ethereum/EthereumAddress.js"
 import { createLogger } from "../utils/logging.js"
 import { getLeafRecordFromNormalizedLeafAppendedEvent } from "../utils/codec.js"
 import { putLeafRecordInDB, getLeafRecordFromDB } from "../storage/utils.js"
@@ -9,66 +8,14 @@ import type { AccumulatorContract } from "../ethereum/AccumulatorContract.js"
 import type { Storage } from "../storage/interface.js"
 import type { NormalizedLeafAppendedEvent } from "../ethereum/events.types.js"
 import type { EventCacheServiceConfig } from "./EventCacheService.types.js"
-/**
- * DB Schema for CID Accumulator Singleton
- *	IpfsPinner storage:
- * - "ipfs:remote-pinned:service:{serviceName}:cid:{cidString}" - boolean indicating whether the CID has been remote pinned at the service
- *
- * IpfsResolver storage:
- * - "ipfs:block:{cidString}" - dagCborEncodedData
- *
- * AccountRegistry storage:
- * - "account-registry:singletonBirthdayBlock" - blockNumber
- * - "account-registry:lastProcessedBlock" - blockNumber
- * - "account-registry:account:{index}" - accountAddress
- *
- * EventCacheService storage:
- * - "events:block:{blockNumber}" - informational JSON array of accounts in the latest fetch; not proof of coverage
- * - "events:complete:block:{blockNumber}" - "true" after an unfiltered fetch completes
- * - "events:account:{account}:block:{blockNumber}" - complete JSON array of leaf indices for this account, including []
- *
- * Shared leaf data storage (populated via on-chain events, IPFS downloads, CID-walkbacks, MMRs, etc):
- * Invalidate shared leaf data only through coordinated chain rollback.
- *
- * "account:{address}:leaf:{leafIndex}": { // LeafRecord
- *   account: EthereumAddress,           // the account address
- *   leafIndex: number,                  // the leaf index
- *   payload: Uint8Array,                // the raw payload
- *   payloadCID?: CID<unknown, 113, 27, 1>, // CID<unknown, 113, 27, 1>.toString(), the CID of the payload itself, not the root CID,
- *   blockNumber?: number,               // block number (base 10) where the leaf was inserted
- *   previousInsertBlockNumber?: number, // block number (base 10) where the previous leaf was inserted
- *   mergeLeftHashes?: CID<unknown, 113, 27, 1>[] // multihash bodies of nodes merged during insertion
- *   rootCidAfterInsert?: CID<unknown, 113, 27, 1>, // root CID after this leaf was inserted
- *   insertionTrail?: CIDDataPair[],     // trail of CIDDataPair objects from insertion (excluding payloadCID/payload)
- *   peaksWithHeightsAfterInsert?: PeakWithHeight[] // peaks with heights after insertion
- * }
- */
-
-/**
- * The EventCoordinator is responsible for lazy-loading LeafAppended events from the blockchain as needed.
- * It stores any events it learns about in the local DB.
- * Before making an RPC call to check a block for LeafAppended events, it checks the local DB first.
- * If the events are already in the DB, it returns them immediately. Otherwise it makes the RPC call.
- *
- * This design is intended to minimize RPC calls for users who don't run their own nodes.
- *
- * If you don't care about minimizing RPC calls, you can use the syncEventsUpToLatestBlock() method to proactively grab all
- * LeafAppended events from the CIDAccumulatorSingleton contract's deploy block all the way up to latest.
- * (This is what the Seeder class does when its config option `lazyLoadEvents` is false.)
- *
- * It also subscribes to new LeafAppended events from the RPC provider, stores any it learns about in the DB,
- * and notifies any subscribers of any new LeafAppended events it learns about.
- */
+/** Caches and follows events emitted by one configured accumulator contract. */
 export class EventCacheService implements LifecycleComponent {
 	private get chain(): Promise<ChainState> { return getChainState(this.storage, this.accumulatorContract) }
 	private chainGeneration = -1
 	private accumulatorContract: AccumulatorContract
 	public storage: Storage
 	private lazyLoadEvents: boolean = true
-	public readonly specificAccountsMode: boolean = false
-	public readonly specificAccounts: EthereumAddress[]
 
-	private singletonBirthdayBlockNum?: number
 	private eventSubscribers: Array<(event: LeafRecord) => void> = []
 
 	private isPolling: boolean = false
@@ -88,9 +35,6 @@ export class EventCacheService implements LifecycleComponent {
 		this.logger = createLogger("EventCacheService")
 		this.lazyLoadEvents = config.lazyLoadEvents
 		this.pollingIntervalMs = config.pollingIntervalMs
-		this.specificAccounts = config.specificAccountsOnly
-
-		if (config.specificAccountsOnly.length > 0) this.specificAccountsMode = true
 	}
 
 	/**
@@ -104,8 +48,6 @@ export class EventCacheService implements LifecycleComponent {
 		}
 		try {
 			this.logger.log("Initializing...")
-			// Get the contract's birthday block
-			this.singletonBirthdayBlockNum = await this.accumulatorContract.getSingletonBirthdayBlockNum()
 			this.initialized = true
 			this.logger.log("Initialized successfully")
 		} catch (error) {
@@ -205,23 +147,8 @@ export class EventCacheService implements LifecycleComponent {
 		}
 	}
 
-	private getQueryAccounts(requestedAccount?: EthereumAddress): EthereumAddress[] | undefined {
-		if (!this.specificAccountsMode || this.specificAccounts.length === 0) return undefined
-		// Snapshot the filter so cache coverage describes the query actually sent to the RPC.
-		const accounts = [...this.specificAccounts]
-		if (requestedAccount && !accounts.some((account) => account.toString() === requestedAccount.toString())) {
-			accounts.push(requestedAccount)
-		}
-		return accounts
-	}
-
-	private async isBlockCached(blockNumber: number, accounts?: EthereumAddress[]): Promise<boolean> {
-		if ((await this.storage.get(`events:complete:block:${blockNumber}`)) === "true") return true
-		if (!accounts?.length) return false
-		for (const account of accounts) {
-			if ((await this.storage.get(`events:account:${account}:block:${blockNumber}`)) === undefined) return false
-		}
-		return true
+	private async isBlockCached(blockNumber: number): Promise<boolean> {
+		return (await this.storage.get(`events:account:${this.accumulatorContract.address}:block:${blockNumber}`)) !== undefined
 	}
 
 	/**
@@ -244,15 +171,14 @@ export class EventCacheService implements LifecycleComponent {
 			if (savedCursor !== undefined) this.setPollingCursor(Math.min(this.lastPolledBlockNum, Number(savedCursor)))
 		}
 		currentBlock = Math.min(currentBlock ?? snapshot.block.number, snapshot.block.number)
-		const accounts = this.getQueryAccounts()
 		for (let startBlock = this.lastPolledBlockNum + 1; startBlock <= currentBlock; startBlock += 10) {
 			const endBlock = Math.min(startBlock + 9, currentBlock)
-			const events = await this.fetchRange(startBlock, endBlock, accounts, snapshot)
+			const events = await this.fetchRange(startBlock, endBlock, snapshot)
 			await chain.ensureCanonical(snapshot)
 			await chain.commit(snapshot, async () => {
 				for (let block = startBlock; block <= endBlock; block++) {
 					if (!this.isCurrentPoll(generation)) return
-					await this.processEventsForBlock(block, events.filter(event => event.blockNumber === block), accounts)
+					await this.processEventsForBlock(block, events.filter(event => event.blockNumber === block))
 					await this.storage.put("events:latestPolledBlock", String(block))
 					this.lastPolledBlockNum = block
 					this.announcedEvents.delete(block)
@@ -261,15 +187,15 @@ export class EventCacheService implements LifecycleComponent {
 		}
 	}
 
-	private async fetchRange(from: number, to: number, accounts: EthereumAddress[] | undefined, snapshot: ChainSnapshot): Promise<NormalizedLeafAppendedEvent[]> {
+	private async fetchRange(from: number, to: number, snapshot: ChainSnapshot): Promise<NormalizedLeafAppendedEvent[]> {
 		const chain = await this.chain
 		const finalized = await this.accumulatorContract.getBlock("finalized")
 		const events: NormalizedLeafAppendedEvent[] = []
 		const historicalEnd = Math.min(to, finalized.number, snapshot.block.number)
-		if (from <= historicalEnd) events.push(...await this.accumulatorContract.getLeafAppendedLogs(from, historicalEnd, accounts))
+		if (from <= historicalEnd) events.push(...await this.accumulatorContract.getLeafAppendedLogs(from, historicalEnd))
 		for (let number = Math.max(from, historicalEnd + 1); number <= to; number++) {
 			const block = await chain.getBlock(snapshot, number)
-			events.push(...await this.accumulatorContract.getLeafAppendedLogs(number, number, accounts, block.hash))
+			events.push(...await this.accumulatorContract.getLeafAppendedLogs(number, number, block.hash))
 		}
 		return events
 	}
@@ -277,13 +203,11 @@ export class EventCacheService implements LifecycleComponent {
 	/**
 	 * Retrieves all leaf appended events for a specific account within a block range, and returns the relevant information about each event.
 	 * @notice This method will fetch events from the blockchain if they are not already in the local database
-	 * @param account The account address to get events for
 	 * @param fromBlock The starting block number (inclusive)
 	 * @param toBlock The ending block number (inclusive)
 	 * @returns Array of LeafRecord objects containing event data
 	 */
-	public async getLeafRecordsForAccount(
-		account: EthereumAddress,
+	public async getLeafRecords(
 		fromBlock: number,
 		toBlock: number
 	): Promise<LeafRecord[]> {
@@ -291,13 +215,13 @@ export class EventCacheService implements LifecycleComponent {
 		const chain = await this.chain
 		const snapshot = await chain.snapshot()
 
-		// Get leaf records from DB
+		const account = this.accumulatorContract.address
 		const leafRecords: LeafRecord[] = []
 
 		// Iterate through blocks in the range
 		for (let blockNum = fromBlock; blockNum <= toBlock; blockNum++) {
-			if (!(await this.isBlockCached(blockNum, [account]))) {
-				await this.fetchEventsForAccounts(blockNum, this.getQueryAccounts(account))
+			if (!(await this.isBlockCached(blockNum))) {
+				await this.fetchEventsForBlock(blockNum)
 			}
 
 			const accountLeafIndicesKey = `events:account:${account.toString()}:block:${blockNum}`
@@ -323,17 +247,16 @@ export class EventCacheService implements LifecycleComponent {
 	 * Retrieves a specific leaf appended event for an account and leaf index at a given block, and returns the relevant information about the event.
 	 * This function isn't called unless the caller knows the event to be in this block.
 	 * @notice This method will fetch the event from the blockchain if it is not already in the local database, and throw an error if it is not found.
-	 * @param account The account address to get the event for
 	 * @param leafIndex The specific leaf index to retrieve
 	 * @param blockNum The block number where the event occurred
 	 * @returns The LeafRecord object if found
 	 */
 	public async getLeafRecordForLeafIndexOrThrow(
-		account: EthereumAddress,
 		leafIndex: number,
 		blockNum: number
 	): Promise<LeafRecord> {
-		let leafRecords = await this.getLeafRecordsForAccount(account, blockNum, blockNum)
+		const account = this.accumulatorContract.address
+		let leafRecords = await this.getLeafRecords(blockNum, blockNum)
 		let leafRecordsWithLeafIndex = leafRecords.filter((e) => e.leafIndex === leafIndex)
 
 		if (leafRecordsWithLeafIndex.length > 1) {
@@ -370,15 +293,17 @@ export class EventCacheService implements LifecycleComponent {
 		// Get latest block
 		const chain = await this.chain
 		const snapshot = await chain.snapshot()
-		const latestBlockStr = snapshot.block.number
-		if (!latestBlockStr) throw new Error("[EventCoordinator] Cannot get latest block number")
-		const latestBlock = Number(latestBlockStr)
-		const accounts = this.getQueryAccounts()
+		const latestBlock = snapshot.block.number
+		const state = await this.accumulatorContract.getState({ blockHash: snapshot.block.hash, requireCanonical: true })
+		await chain.ensureCanonical(snapshot)
+		// An empty accumulator has no history; forward polling still catches its first append.
+		if (state.meta.leafCount === 0) return
+		const birthdayBlockNum = state.meta.deployBlockNumber
 
 		// Determine which blocks from birthdayBlock to latestBlock need to be fetched
 		const blocksToFetch = []
-		for (let blockNum = this.singletonBirthdayBlockNum!; blockNum <= latestBlock; blockNum++) {
-			if (!(await this.isBlockCached(blockNum, accounts))) {
+		for (let blockNum = birthdayBlockNum; blockNum <= latestBlock; blockNum++) {
+			if (!(await this.isBlockCached(blockNum))) {
 				blocksToFetch.push(blockNum)
 			}
 		}
@@ -392,8 +317,7 @@ export class EventCacheService implements LifecycleComponent {
 			this.logger.log(`Processing blocks ${startBlock} to ${endBlock} (batch of ${endBlock - startBlock + 1} blocks)`)
 
 			// Fetch events for the entire batch at once
-			// If specificAccounts is defined, filter events only for those accounts
-			const events = await this.fetchRange(startBlock, endBlock, accounts, snapshot)
+			const events = await this.fetchRange(startBlock, endBlock, snapshot)
 			await chain.ensureCanonical(snapshot)
 
 			// Process events by block
@@ -410,9 +334,9 @@ export class EventCacheService implements LifecycleComponent {
 
 			// Process each block's events
 			for (let blockNum = startBlock; blockNum <= endBlock; blockNum++) {
-				if (!(await this.isBlockCached(blockNum, accounts))) {
+				if (!(await this.isBlockCached(blockNum))) {
 					const blockEvents = blockToEvents.get(blockNum) || []
-					await chain.commit(snapshot, () => this.processEventsForBlock(blockNum, blockEvents, accounts))
+					await chain.commit(snapshot, () => this.processEventsForBlock(blockNum, blockEvents))
 				}
 			}
 		}
@@ -426,22 +350,17 @@ export class EventCacheService implements LifecycleComponent {
 	 * @param options Optional parameters
 	 * @param options.beforeBlock If provided, only clears events before this block number
 	 * @param options.afterBlock If provided, only clears events after this block number
-	 * @param options.forAccount If provided, only clears events for this specific account
 	 * @returns The number of entries deleted from the database
 	 */
 	public async clearEventCache(options?: {
 		beforeBlock?: number
 		afterBlock?: number
-		forAccount?: string
 	}): Promise<number> {
 		if (!this.initialized) await this.init()
 
 		return (await this.chain).read(async () => {
 			let deletedCount = 0
 			const keysToDelete: string[] = []
-
-			// Normalize account if provided
-			const normalizedAccount = options?.forAccount ? options.forAccount.toLowerCase() : undefined
 
 			// Iterate through all keys in the database
 			for await (const { key } of this.storage.iterate("events:")) {
@@ -466,26 +385,11 @@ export class EventCacheService implements LifecycleComponent {
 					}
 				}
 
-				// Clearing one account invalidates block-wide completeness, including blocks with no events.
-				// Other accounts' indices and the shared leaf data remain usable.
-				if (
-					normalizedAccount &&
-					!key.startsWith(`events:account:${normalizedAccount}:`) &&
-					!key.startsWith("events:complete:block:") &&
-					!key.startsWith("events:block:")
-				) {
-					shouldDelete = false
-				}
-
 				if (shouldDelete) {
 					keysToDelete.push(key)
 				}
 			}
 
-			// Invalidate global coverage before removing any account indices it describes.
-			keysToDelete.sort(
-				(a, b) => Number(b.startsWith("events:complete:block:")) - Number(a.startsWith("events:complete:block:"))
-			)
 			for (const key of keysToDelete) {
 				await this.storage.delete(key)
 				deletedCount++
@@ -521,12 +425,11 @@ export class EventCacheService implements LifecycleComponent {
 	 */
 	public async fetchAndStoreEventsForBlock(blockNumber: number, forceRefresh: boolean = false): Promise<void> {
 		if (!this.initialized) await this.init()
-		await this.fetchEventsForAccounts(blockNumber, this.getQueryAccounts(), forceRefresh)
+		await this.fetchEventsForBlock(blockNumber, forceRefresh)
 	}
 
-	private async fetchEventsForAccounts(
+	private async fetchEventsForBlock(
 		blockNumber: number,
-		accounts?: EthereumAddress[],
 		forceRefresh: boolean = false
 	): Promise<void> {
 		const chain = await this.chain
@@ -535,10 +438,10 @@ export class EventCacheService implements LifecycleComponent {
 			this.announcedEvents.clear()
 			this.chainGeneration = snapshot.generation
 		}
-		if (!forceRefresh && await chain.read(() => this.isBlockCached(blockNumber, accounts))) return
-		const events = await this.fetchRange(blockNumber, blockNumber, accounts, snapshot)
+		if (!forceRefresh && await chain.read(() => this.isBlockCached(blockNumber))) return
+		const events = await this.fetchRange(blockNumber, blockNumber, snapshot)
 		await chain.ensureCanonical(snapshot)
-		await chain.commit(snapshot, () => this.processEventsForBlock(blockNumber, events, accounts))
+		await chain.commit(snapshot, () => this.processEventsForBlock(blockNumber, events))
 	}
 
 	// PRIVATE METHODS
@@ -558,8 +461,7 @@ export class EventCacheService implements LifecycleComponent {
 	}
 
 	private announceEventsForBlock(blockNumber: number, events: NormalizedLeafAppendedEvent[]): void {
-		// An earlier fetch may cover only some accounts in this block. Deduplicate events,
-		// not whole blocks, until polling has passed them.
+		// A lazy fetch may publish events before polling reaches this block.
 		let announced = this.announcedEvents.get(blockNumber)
 		if (!announced && blockNumber > this.lastPolledBlockNum && events.length > 0) {
 			announced = new Set<string>()
@@ -586,51 +488,13 @@ export class EventCacheService implements LifecycleComponent {
 		await putLeafRecordInDB(this.storage, event.account, event.leafIndex, leafRecord)
 	}
 
-	/**
-	 * Processes a batch of events for a specific block and stores them in the database
-	 *
-	 * @param blockNumber The block number being processed
-	 * @param events Array of events from the block
-	 * @param accounts The queried account filter, or undefined for an unfiltered query
-	 */
-	private async processEventsForBlock(
-		blockNumber: number,
-		events: NormalizedLeafAppendedEvent[],
-		accounts?: EthereumAddress[]
-	): Promise<void> {
-		// First store each leaf record
-		for (const event of events) {
-			// Store the leaf record in the accounts section of the DB (for use by all other classes)
-			await this.storeLeafRecord(event)
-		}
-
-		// Group events by account
-		const eventsByAccount = new Map<string, number[]>()
-		// An empty array also proves this account was queried, even when it had no events.
-		for (const account of accounts ?? []) eventsByAccount.set(account.toString(), [])
-		for (const event of events) {
-			const account = event.account.toString()
-			if (!eventsByAccount.has(account)) {
-				eventsByAccount.set(account, [])
-			}
-			eventsByAccount.get(account)!.push(event.leafIndex)
-		}
-
-		// Write the informational index before publishing coverage, so a failed compatibility write is retriable.
-		const accountsWithEvents = Array.from(eventsByAccount)
-			.filter(([, indices]) => indices.length > 0)
-			.map(([account]) => account)
-		await this.storage.put(`events:block:${blockNumber}`, JSON.stringify(accountsWithEvents))
-
-		// Publish account coverage only after its leaf data and the informational index are stored.
-		for (const [account, leafIndices] of eventsByAccount.entries()) {
-			const accountEventsKey = `events:account:${account}:block:${blockNumber}`
-			await this.storage.put(accountEventsKey, JSON.stringify(leafIndices))
-		}
-		// Only an unfiltered result proves global completeness.
-		if (!accounts) await this.storage.put(`events:complete:block:${blockNumber}`, "true")
-
-		// Notify subscribers
+	/** Publish block coverage only after every event's leaf data has been stored. */
+	private async processEventsForBlock(blockNumber: number, events: NormalizedLeafAppendedEvent[]): Promise<void> {
+		for (const event of events) await this.storeLeafRecord(event)
+		await this.storage.put(
+			`events:account:${this.accumulatorContract.address}:block:${blockNumber}`,
+			JSON.stringify(events.map(event => event.leafIndex))
+		)
 		this.announceEventsForBlock(blockNumber, events)
 	}
 }

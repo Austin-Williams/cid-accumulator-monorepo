@@ -2,19 +2,21 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import { concat, getBytes, hexlify, Interface, toBeHex } from "ethers"
 import { parseLeafAppendedLog } from "../source/ethereum/abiUtils.js"
+import { getLeafAppendedLogs, getRootCID, getState } from "../source/ethereum/commonCalls.js"
+import { EthereumAddress } from "../source/ethereum/EthereumAddress.js"
+import { AccumulatorContract } from "../source/ethereum/AccumulatorContract.js"
+import { CIDAccumulatorABI } from "../source/utils/constants.js"
 import type { RawEthLog } from "../source/ethereum/events.types.js"
 
-const abi = new Interface([
-	"event LeafAppended(address indexed account, uint64 metadata, bytes payloadAndMergeHashes)",
-])
+const abi = new Interface(CIDAccumulatorABI)
 const account = "0x" + "ab".repeat(20)
 const previousInsertBlockNumber = 20_000_000
 
 function encodeLog(payload: string, hashes: string[]): RawEthLog {
 	const metadata = BigInt(2 ** hashes.length - 1) | (BigInt(previousInsertBlockNumber) << 32n)
 	return {
-		...abi.encodeEventLog(abi.getEvent("LeafAppended")!, [account, metadata, concat([payload, ...hashes])]),
-		address: "0x" + "11".repeat(20),
+		...abi.encodeEventLog(abi.getEvent("LeafAppended")!, [metadata, concat([payload, ...hashes])]),
+		address: account,
 		blockNumber: toBeHex(previousInsertBlockNumber + 1),
 		blockHash: "0x" + "CD".repeat(32),
 	}
@@ -28,8 +30,12 @@ function replaceWord(log: RawEthLog, byteOffset: number, value: bigint): RawEthL
 test("LeafAppended decoding preserves ABI payloads and merge hashes through the contract limit", async () => {
 	for (const count of [0, 1, 2, 31]) {
 		const hashes = Array.from({ length: count }, (_, i) => toBeHex(i + 1, 32))
-		for (const size of [0, 1, 31, 32, 33]) {
-			const payload = "0x" + "ab".repeat(size)
+		for (const payload of [
+			"0x" + "00".repeat(32),
+			"0x" + "ff".repeat(32),
+			"0x00" + "ab".repeat(30) + "00",
+			toBeHex(1, 32),
+		]) {
 			const event = await parseLeafAppendedLog(encodeLog(payload, hashes))
 			assert.equal(event.account.toString(), account)
 			assert.equal(event.leafIndex, 2 ** count - 1)
@@ -48,8 +54,7 @@ test("LeafAppended decoding preserves ABI payloads and merge hashes through the 
 })
 
 test("LeafAppended decoding bounds untrusted ABI offsets and lengths before decoding", async () => {
-	const empty = encodeLog("0x", [])
-	const unalignedPayload = encodeLog("0xab", [])
+	const empty = encodeLog(toBeHex(0, 32), [])
 	const cases: [string, RawEthLog][] = [
 		["missing head", { ...empty, data: empty.data.slice(0, 2 + 63 * 2) }],
 		["invalid hex", { ...empty, data: empty.data.slice(0, -2) + "gg" }],
@@ -59,10 +64,82 @@ test("LeafAppended decoding bounds untrusted ABI offsets and lengths before deco
 		["uint256 offset", replaceWord(empty, 32, (1n << 200n) + 64n)],
 		["uint256 combined length", replaceWord(empty, 64, 1n << 200n)],
 		["missing merge hashes", replaceWord(empty, 0, 1n)],
-		["missing padding", { ...unalignedPayload, data: unalignedPayload.data.slice(0, -2) }],
-		["beyond contract limit", encodeLog("0x", Array(32).fill(toBeHex(1, 32)))],
+		["truncated body", { ...empty, data: empty.data.slice(0, -2) }],
+		["beyond contract limit", encodeLog(toBeHex(0, 32), Array(32).fill(toBeHex(1, 32)))],
 	]
 	for (const [reason, log] of cases) {
 		await assert.rejects(parseLeafAppendedLog(log), /Invalid LeafAppended/, reason)
 	}
+})
+
+
+test("accumulator RPC calls use the consumer address and pinned block without account arguments", async (t) => {
+	const contractAddress = new EthereumAddress(account)
+	const blockHash = "0x" + "cd".repeat(32)
+	const block = { blockHash, requireCanonical: true as const }
+	const payload = toBeHex(1, 32)
+	const log = encodeLog(payload, [])
+	const metadata = 1n << 160n | 1n << 165n | BigInt(previousInsertBlockNumber) << 197n | 100n << 229n
+	const root = "0x01711b20" + "42".repeat(32)
+	const requests: Array<{ method: string; params: any[] }> = []
+	t.mock.method(globalThis, "fetch", async (_url: unknown, options: RequestInit) => {
+		const request = JSON.parse(options.body as string)
+		requests.push(request)
+		let result: unknown
+		if (request.method === "eth_chainId") result = "0x20000000000001"
+		else if (request.method === "eth_getLogs") result = [log]
+		else if (request.params[0].data === abi.getFunction("getState")!.selector) {
+			result = abi.encodeFunctionResult("getState", [metadata, Array(32).fill(toBeHex(0, 32))])
+		} else result = abi.encodeFunctionResult("getRootCID", [root])
+		return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }))
+	})
+	const params = { ethereumHttpRpcUrl: "http://localhost:8545", contractAddress, block }
+	const contract = new AccumulatorContract({
+		ethereumHttpRpcUrl: params.ethereumHttpRpcUrl,
+		accumulatorContractAddress: contractAddress,
+		rateLimiterOptions: { intervalMs: 0, maxRetries: 0, baseDelay: 0, capDelay: 0 },
+	})
+	assert.equal(requests.length, 0)
+	assert.equal(await contract.getChainId(), 0x20000000000001n)
+	assert.equal(contract.address.toString(), account)
+	const state = await getState(params)
+	assert.equal(state.meta.leafCount, 1)
+	assert.equal(state.meta.deployBlockNumber, 100)
+	assert.equal(hexlify((await getRootCID(params)).bytes), root)
+	const events = await getLeafAppendedLogs({
+		...params,
+		fromBlock: previousInsertBlockNumber + 1,
+		toBlock: previousInsertBlockNumber + 1,
+		blockHash,
+	})
+	assert.equal(events[0].account.toString(), account)
+	assert.deepEqual(events[0].payload, getBytes(payload))
+	assert.deepEqual(requests.map(({ method, params }) => ({ method, params })), [
+		{ method: "eth_chainId", params: [] },
+		{ method: "eth_call", params: [{ to: account, data: abi.getFunction("getState")!.selector }, block] },
+		{ method: "eth_call", params: [{ to: account, data: abi.getFunction("getRootCID")!.selector }, block] },
+		{ method: "eth_getLogs", params: [{ address: account, topics: [abi.getEvent("LeafAppended")!.topicHash], blockHash }] },
+	])
+})
+
+test("historical state before deployment is empty only after checking code at that block", async (t) => {
+	const block = { blockHash: "0x" + "12".repeat(32), requireCanonical: true as const }
+	const requests: Array<{ method: string; params: unknown[] }> = []
+	t.mock.method(globalThis, "fetch", async (_url: unknown, options: RequestInit) => {
+		const request = JSON.parse(options.body as string)
+		requests.push(request)
+		return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: "0x" }))
+	})
+	const state = await getState({
+		ethereumHttpRpcUrl: "http://localhost:8545",
+		contractAddress: new EthereumAddress(account),
+		block,
+	})
+	assert.equal(state.meta.leafCount, 0)
+	assert.equal(state.meta.deployBlockNumber, 0)
+	assert.deepEqual(state.peaks, [])
+	assert.deepEqual(requests.map(({ method, params }) => ({ method, params })), [
+		{ method: "eth_call", params: [{ to: account, data: abi.getFunction("getState")!.selector }, block] },
+		{ method: "eth_getCode", params: [account, block] },
+	])
 })

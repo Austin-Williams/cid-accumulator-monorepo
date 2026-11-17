@@ -18,17 +18,11 @@ export interface RawEthLog {
 }
 
 export type NormalizedLeafAppendedEvent = {
-	account: EthereumAddress // indexed
+	account: EthereumAddress // The contract emitting the event.
 	leafIndex: number
 	previousInsertBlockNumber: number
 	payload: Uint8Array
 	mergeLeftHashes: CID<unknown, 113, 27, 1>[]
-	blockNumber: number
-	blockHash?: string
-}
-
-export type NormalizedNewAccountInitializedEvent = {
-	account: EthereumAddress
 	blockNumber: number
 	blockHash?: string
 }

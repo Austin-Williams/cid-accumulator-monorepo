@@ -34,6 +34,7 @@ mock.module(${JSON.stringify(factoryModule.href)}, {
 })
 const stoppedBeforeStartup = new Error("Stop before starting seeder services")
 Seeder.prototype.start = async function () {
+	this.dependencies.accumulatorContract.getChainId = async () => 1n
 	${writeStorage ? 'await this.dependencies.storage.put("cli:test", "stored")' : ""}
 	throw stoppedBeforeStartup
 }
@@ -82,7 +83,6 @@ describe("seeder CLI configuration", () => {
 				ipfsPinnerBaseUrl,
 				accumulatorContractAddress: contractAddress,
 				remotePin: "true",
-				specificAccountsOnly: "[]",
 			}
 			const args = Object.entries(options).flatMap(([key, value]) =>
 				format === "inline" ? [`--${key}=${value}`] : [`--${key}`, value]
@@ -95,15 +95,15 @@ describe("seeder CLI configuration", () => {
 			assert.equal(config.ipfsPinnerConfig.baseUrl, ipfsPinnerBaseUrl)
 			assert.equal(config.accumulatorContractConfig.accumulatorContractAddress, contractAddress)
 			assert.equal(config.ipfsPinnerConfig.remotePin, true)
-			assert.deepEqual(config.accountRegistryServiceConfig.specificAccountsOnly, [])
-			assert.deepEqual(config.eventCacheServiceConfig.specificAccountsOnly, [])
 			assert.deepEqual(
 				config.accumulatorContractConfig.rateLimiterOptions,
 				defaultSeederConfig.accumulatorContractConfig.rateLimiterOptions
 			)
 
 			await runCli(args, true)
-			assert.deepEqual(JSON.parse(await readFile(`${nodeDbPath}-${contractAddress}`, "utf8")), { "cli:test": "stored" })
+			const saved = JSON.parse(await readFile(nodeDbPath, "utf8"))
+			assert.deepEqual(Object.values(saved), ["stored"])
+			assert.ok(Object.keys(saved)[0].endsWith("cli:test"))
 		})
 	}
 

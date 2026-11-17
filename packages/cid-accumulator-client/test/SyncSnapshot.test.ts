@@ -31,7 +31,7 @@ function fixture(t: TestContext) {
 	t.mock.method(console, "error", () => {})
 	const account = new EthereumAddress("0x" + "ab".repeat(20))
 	const storage = new InMemoryAdapter()
-	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
+	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: account })
 	mockChain(t, contract, storage)
 	const mmr = new MerkleMountainRange()
 	const logs: NormalizedLeafAppendedEvent[] = []
@@ -51,7 +51,6 @@ function fixture(t: TestContext) {
 		}
 	}
 	const getState = t.mock.method(contract, "getState", async () => snapshot())
-	t.mock.method(contract, "getSingletonBirthdayBlockNum", async () => 1)
 	t.mock.method(contract, "getBlockNumber", async () => Math.max(1, logs.length))
 	t.mock.method(contract, "getLeafAppendedLogs", async (from: number, to: number) =>
 		logs.filter((event) => event.blockNumber >= from && event.blockNumber <= to)
@@ -59,7 +58,7 @@ function fixture(t: TestContext) {
 	const events = new EventCacheService(storage, contract, defaultLightClientEventCacheServiceConfig)
 	const resolver = new IpfsResolver(storage, defaultLightClientIpfsResolverConfig)
 	const resolve = t.mock.method(resolver, "fullyResolveCID", async () => undefined)
-	const client = new LightClient(account, {
+	const client = new LightClient({
 		storage,
 		accumulatorContract: contract,
 		eventCacheService: events,

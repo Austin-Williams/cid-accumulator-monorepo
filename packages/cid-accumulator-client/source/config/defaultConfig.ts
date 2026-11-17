@@ -1,5 +1,4 @@
 import type { AccumulatorContractConfig } from "../ethereum/AccumulatorContract.types.js"
-import type { AccountRegistryServiceConfig } from "../services/AccountRegistryService.types.js"
 import type { EventCacheServiceConfig } from "../services/EventCacheService.types.js"
 import type { SeederConfig } from "../core/seeder/Seeder.types.js"
 import type { IpfsPinnerConfig } from "../ipfs/IpfsPinner.types.js"
@@ -73,28 +72,14 @@ export const defaultIpfsPinnerConfig: Required<IpfsPinnerConfig> = {
 }
 
 // SERVICES
-// Account Registry Service
-export const defaultLightClientAccountRegistryServiceConfig: Required<AccountRegistryServiceConfig> = {
-	specificAccountsOnly: [],
-	pollingIntervalMs: 60000, // 1 minute
-	batchSize: 1000,
-}
-export const defaultSeederAccountRegistryServiceConfig: Required<AccountRegistryServiceConfig> = {
-	specificAccountsOnly: [],
-	pollingIntervalMs: 12000, // 12 seconds
-	batchSize: 10000,
-}
-
 // Event Cache Service
 export const defaultLightClientEventCacheServiceConfig: Required<EventCacheServiceConfig> = {
 	lazyLoadEvents: true,
 	pollingIntervalMs: 12000,
-	specificAccountsOnly: [],
 }
 export const defaultSeederEventCacheServiceConfig: Required<EventCacheServiceConfig> = {
 	lazyLoadEvents: true,
 	pollingIntervalMs: 5000,
-	specificAccountsOnly: [],
 }
 
 // Pinning Service
@@ -117,7 +102,6 @@ export const defaultSeederConfig = {
 	nodeDbPath: "./db/cid-accumulator-seeder.json",
 	browserDbName: "cid-accumulator",
 	accumulatorContractConfig: defaultSeederAccumulatorContractConfig,
-	accountRegistryServiceConfig: defaultSeederAccountRegistryServiceConfig,
 	eventCacheServiceConfig: defaultSeederEventCacheServiceConfig,
 	ipfsResolverConfig: defaultSeederIpfsResolverConfig,
 	ipfsPinnerConfig: defaultIpfsPinnerConfig,

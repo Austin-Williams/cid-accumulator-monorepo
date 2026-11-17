@@ -8,7 +8,6 @@ import {
 	defaultLightClientAccumulatorContractConfig,
 	defaultLightClientEventCacheServiceConfig,
 	defaultLightClientIpfsResolverConfig,
-	defaultSeederAccountRegistryServiceConfig,
 } from "../source/config/defaultConfig.js"
 import { AccumulatorContract } from "../source/ethereum/AccumulatorContract.js"
 import { EthereumAddress } from "../source/ethereum/EthereumAddress.js"
@@ -17,8 +16,7 @@ import { IpfsResolver } from "../source/ipfs/IpfsResolver.js"
 import type { CIDDataPair } from "../source/ipfs/types.js"
 import { MerkleMountainRange } from "../source/mmr/MerkleMountainRange.js"
 import type { LeafRecord, MMRLeafAppendedTrail } from "../source/mmr/types.js"
-import { AccountRegistryService } from "../source/services/AccountRegistryService.js"
-import { DataClientManager } from "../source/services/DataClientManager.js"
+import { DataClient } from "../source/core/dataClient/DataClient.js"
 import { EventCacheService } from "../source/services/EventCacheService.js"
 import { PinningService } from "../source/services/PinningService.js"
 import { InMemoryAdapter } from "../source/storage/adapters/InMemoryAdapter.js"
@@ -47,16 +45,11 @@ function fixture(t: TestContext) {
 	const intervals = t.mock.method(globalThis, "setInterval")
 	const storage = new InMemoryAdapter()
 	const account = new EthereumAddress("0x" + "11".repeat(20))
-	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
+	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: account })
 	mockChain(t, contract, storage)
-	const registry = new AccountRegistryService(storage, contract, {
-		...defaultSeederAccountRegistryServiceConfig,
-		specificAccountsOnly: [],
-	})
 	const events = new EventCacheService(storage, contract, defaultLightClientEventCacheServiceConfig)
 	const resolver = new IpfsResolver(storage, defaultLightClientIpfsResolverConfig)
-	const manager = new DataClientManager(storage, contract, registry, events, resolver)
-	const client = manager.getOrCreateDataClient(account)
+	const client = new DataClient({ storage, accumulatorContract: contract, eventCacheService: events, ipfsResolver: resolver })
 	client.completedInitialSync = true
 	const subscriptions = t.mock.method(client, "subscribe")
 	const pinner = new IpfsPinner(storage, defaultIpfsPinnerConfig)
@@ -71,7 +64,7 @@ function fixture(t: TestContext) {
 		await pinBehavior(pair)
 		pinned.add(pair.cid.toString())
 	})
-	const service = new PinningService(storage, contract, registry, manager, pinner, 60000)
+	const service = new PinningService(storage, contract, client, pinner, 60000)
 	t.after(() => service.stop())
 	const trails: MMRLeafAppendedTrail[] = []
 	async function append(payload: Uint8Array, notify = false) {
@@ -87,7 +80,7 @@ function fixture(t: TestContext) {
 		await callback()
 	}
 	function liveMMR() {
-		const mmr = service.mmrs.get(account.toString())
+		const mmr = service.mmr
 		assert.ok(mmr)
 		return mmr
 	}
@@ -99,7 +92,6 @@ function fixture(t: TestContext) {
 	return {
 		service,
 		account,
-		registry,
 		client,
 		chain,
 		trails,
@@ -120,8 +112,7 @@ function fixture(t: TestContext) {
 describe("pinning failure recovery", { concurrency: false, timeout: 5000 }, () => {
 	test("initial upload failure stays subscribed and the periodic check retries it", async (t) => {
 		const f = fixture(t)
-		await f.append(Uint8Array.of(1))
-		f.registry.knownAccounts.push(f.account)
+		await f.append(new Uint8Array(32).fill(1))
 		f.setPinBehavior(async () => {
 			throw new Error("IPFS offline")
 		})
@@ -129,24 +120,23 @@ describe("pinning failure recovery", { concurrency: false, timeout: 5000 }, () =
 		assert.equal(f.liveMMR().leafCount, 0)
 		assert.equal(f.pinned.size, 0)
 		assert.equal(f.subscriptions.mock.callCount(), 1)
-		assert.equal(await f.service.verifyRootCIDs(f.account), false)
+		assert.equal(await f.service.verifyRootCIDs(), false)
 
 		f.setPinBehavior(async () => {})
 		await f.tick()
 		await f.assertFullyPinned()
-		await f.service.trackNewAccount(f.account)
+		await f.service.sync()
 		assert.equal(f.subscriptions.mock.callCount(), 1)
-		await f.append(Uint8Array.of(2), true)
+		await f.append(new Uint8Array(32).fill(2), true)
 		await waitFor(() => f.liveMMR().leafCount === 2)
 		await f.assertFullyPinned()
 	})
 
 	test("a failure midway through a leaf's blocks preserves the previous peaks and retries that leaf", async (t) => {
 		const f = fixture(t)
-		for (let i = 1; i <= 4; i++) await f.append(Uint8Array.of(i))
+		for (let i = 1; i <= 4; i++) await f.append(new Uint8Array(32).fill(i))
 		const failedCID = f.trails[3][1].cid.toString()
 		const previousRoot = f.trails[2][f.trails[2].length - 1].cid.toString()
-		f.registry.knownAccounts.push(f.account)
 		f.setPinBehavior(async (pair) => {
 			if (pair.cid.toString() === failedCID) throw new Error("Intermediate block upload failed")
 		})
@@ -156,7 +146,7 @@ describe("pinning failure recovery", { concurrency: false, timeout: 5000 }, () =
 		assert.equal(f.liveMMR().peaks.length, 2)
 		assert.ok(f.pinned.has(f.trails[3][0].cid.toString()))
 		assert.equal(f.pinned.has(failedCID), false)
-		assert.equal(await f.service.verifyRootCIDs(f.account), false)
+		assert.equal(await f.service.verifyRootCIDs(), false)
 
 		let committedLeaves = 0
 		f.liveMMR().subscribeToLeafAppendedTrail(() => {
@@ -172,8 +162,8 @@ describe("pinning failure recovery", { concurrency: false, timeout: 5000 }, () =
 	test("progress waits for the last pin and concurrent triggers do not duplicate the append", async (t) => {
 		const f = fixture(t)
 		await f.service.start()
-		await f.append(Uint8Array.of(1))
-		await f.append(Uint8Array.of(2))
+		await f.append(new Uint8Array(32).fill(1))
+		await f.append(new Uint8Array(32).fill(2))
 		const entered = deferred()
 		const release = deferred()
 		const finalCID = f.trails[1][1].cid.toString()
@@ -183,12 +173,12 @@ describe("pinning failure recovery", { concurrency: false, timeout: 5000 }, () =
 				await release.promise
 			}
 		})
-		const tracking = f.service.trackNewAccount(f.account)
+		const tracking = f.service.sync()
 		try {
 			await entered.promise
 			assert.equal(f.liveMMR().leafCount, 1)
-			assert.equal(await f.service.verifyRootCIDs(f.account), false)
-			await Promise.all([f.service.trackNewAccount(f.account), f.tick()])
+			assert.equal(await f.service.verifyRootCIDs(), false)
+			await Promise.all([f.service.sync(), f.tick()])
 			assert.equal(f.attempts.filter((cid) => cid === finalCID).length, 1)
 			assert.equal(f.subscriptions.mock.callCount(), 1)
 		} finally {
@@ -200,28 +190,26 @@ describe("pinning failure recovery", { concurrency: false, timeout: 5000 }, () =
 
 	test("event-triggered failures are handled and later events can recover the backlog", async (t) => {
 		const f = fixture(t)
-		await f.append(Uint8Array.of(1))
-		f.registry.knownAccounts.push(f.account)
+		await f.append(new Uint8Array(32).fill(1))
 		await f.service.start()
 		f.setPinBehavior(async () => {
 			throw new Error("IPFS temporarily offline")
 		})
 		const errorsBefore = f.errors.mock.callCount()
-		await f.append(Uint8Array.of(2), true)
+		await f.append(new Uint8Array(32).fill(2), true)
 		await waitFor(() => f.errors.mock.callCount() > errorsBefore)
 		assert.equal(f.liveMMR().leafCount, 1)
 
 		f.setPinBehavior(async () => {})
-		await f.append(Uint8Array.of(3), true)
+		await f.append(new Uint8Array(32).fill(3), true)
 		await waitFor(() => f.liveMMR().leafCount === 3)
 		await f.assertFullyPinned()
 		assert.equal(f.subscriptions.mock.callCount(), 1)
 	})
 
-	test("a failed data sync also releases the account for a later pin attempt", async (t) => {
+	test("a failed data sync permits a later pin attempt", async (t) => {
 		const f = fixture(t)
-		await f.append(Uint8Array.of(1))
-		f.registry.knownAccounts.push(f.account)
+		await f.append(new Uint8Array(32).fill(1))
 		f.client.completedInitialSync = false
 		let offline = true
 		t.mock.method(f.client, "sync", async () => {
@@ -237,10 +225,10 @@ describe("pinning failure recovery", { concurrency: false, timeout: 5000 }, () =
 		await f.assertFullyPinned()
 	})
 
-	test("an old upload completing after restart cannot advance or unlock the new account", async (t) => {
+	test("an old upload completing after restart cannot advance or unlock the new run", async (t) => {
 		const f = fixture(t)
-		await f.append(Uint8Array.of(1))
 		await f.service.start()
+		await f.append(new Uint8Array(32).fill(1))
 		const firstEntered = deferred()
 		const secondEntered = deferred()
 		const firstRelease = deferred()
@@ -255,18 +243,17 @@ describe("pinning failure recovery", { concurrency: false, timeout: 5000 }, () =
 				await secondRelease.promise
 			}
 		})
-		const first = f.service.trackNewAccount(f.account)
+		const first = f.service.sync()
 		let second: Promise<void> | undefined
 		try {
 			await firstEntered.promise
 			f.service.stop()
-			await f.service.start()
-			second = f.service.trackNewAccount(f.account)
+			second = f.service.start()
 			await secondEntered.promise
 			firstRelease.resolve()
 			await first
 			assert.equal(f.liveMMR().leafCount, 0)
-			await f.service.trackNewAccount(f.account)
+			await f.service.sync()
 			assert.equal(calls, 2)
 		} finally {
 			firstRelease.resolve()

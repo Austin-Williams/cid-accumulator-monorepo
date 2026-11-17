@@ -10,7 +10,6 @@ import {
 	parseGetRootCIDResult,
 	parseGetStateResult,
 	parseLeafAppendedLog,
-	parseNewAccountInitializedLog,
 } from "./abiUtils.js"
 
 import type { AccumulatorMetadata, PeakWithHeight } from "../mmr/types.js"
@@ -18,7 +17,6 @@ import type {
 	BlockReference,
 	ChainBlock,
 	NormalizedLeafAppendedEvent,
-	NormalizedNewAccountInitializedEvent,
 	RawEthLog,
 } from "./events.types.js"
 import type { Logger } from "../types/common.js"
@@ -26,6 +24,15 @@ import type { Logger } from "../types/common.js"
 import { LEAF_APPENDED_EVENT_SIGNATURE } from "../utils/constants.js"
 
 const logger: Logger = createLogger("CommonCalls")
+
+/** Return the network identity without narrowing its JSON-RPC quantity to a Number. */
+export async function getChainId(ethereumHttpRpcUrl: string): Promise<bigint> {
+	const value: unknown = await ethRpcFetch(ethereumHttpRpcUrl, "eth_chainId", [])
+	if (typeof value !== "string" || !/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(value)) {
+		throw new Error("Ethereum RPC returned an invalid chain ID")
+	}
+	return BigInt(value)
+}
 
 function normalizeBlockHash(hash: string): string {
 	if (typeof hash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error("Invalid Ethereum block hash")
@@ -104,189 +111,75 @@ export async function getBlockNumber(ethereumHttpRpcUrl: string): Promise<number
 	}
 }
 
-/**
- * Gets the SINGLETON_BIRTHDAY_BLOCK_NUM from the contract
- * @param ethereumHttpRpcUrl The Ethereum node RPC URL
- * @param contractAddress The deployed contract address
- * @returns Promise<number> The block number when the singleton was deployed
- */
-export async function getSingletonBirthdayBlockNum(params: {
-	ethereumHttpRpcUrl: string
-	contractAddress: EthereumAddress
-}): Promise<number> {
-	const { ethereumHttpRpcUrl, contractAddress } = params
-	const signature = "SINGLETON_BIRTHDAY_BLOCK_NUM()"
-	const selector = getSelector(signature)
-	const birthdayBlockHex = await callContractView(ethereumHttpRpcUrl, contractAddress.toString(), selector)
-	// Convert hex string to number
-	return parseInt(birthdayBlockHex, 16)
-}
-
-// Fetches the latest CID from the contract using a raw JSON-RPC call and ABI decoding.
-// @param ethereumHttpRpcUrl - The Ethereum node RPC URL
-// @param contractAddress - The deployed contract address
-// @returns The latest CID as a multiformats.CID object
+/** Fetch the root CID from the configured accumulator at a chosen block. */
 export async function getRootCID(params: {
 	ethereumHttpRpcUrl: string
 	contractAddress: EthereumAddress
-	account: EthereumAddress
 	block?: BlockReference
 }): Promise<CID<unknown, 113, 27, 1>> {
-	const { ethereumHttpRpcUrl, contractAddress, account, block = "latest" } = params
-	const signature = "getRootCID(address)"
-	const selector = getSelector(signature)
-	// Properly pad the address to 32 bytes (64 hex characters) as per Ethereum ABI spec
-	const callData = selector + account.toString().slice(2).padStart(64, "0")
-	const contractRootHex: string = await callContractView(ethereumHttpRpcUrl, contractAddress.toString(), callData, block)
-	const contractRootBytes = parseGetRootCIDResult(contractRootHex)
-	return CID.decode(Uint8Array.from(contractRootBytes))
+	const { ethereumHttpRpcUrl, contractAddress, block = "latest" } = params
+	const result: string = await callContractView(
+		ethereumHttpRpcUrl, contractAddress.toString(), getSelector("getRootCID()"), block
+	)
+	return CID.decode(parseGetRootCIDResult(result))
 }
 
+/** Fetch this accumulator's state, including its first-append birthday. */
 export async function getState(params: {
 	ethereumHttpRpcUrl: string
 	contractAddress: EthereumAddress
-	account: EthereumAddress
 	block?: BlockReference
 }): Promise<{ meta: AccumulatorMetadata; peaks: PeakWithHeight[] }> {
-	try {
-		const { ethereumHttpRpcUrl, contractAddress, account, block = "latest" } = params
-		const signature = "getState(address)"
-		const selector = getSelector(signature)
-		// Properly pad the address to 32 bytes (64 hex characters) as per Ethereum ABI spec
-		const callData = selector + account.toString().slice(2).padStart(64, "0")
-		const accumulatorDataHex: string = await callContractView(ethereumHttpRpcUrl, contractAddress.toString(), callData, block)
-
-		const [mmrMetaBits, peaks] = parseGetStateResult(accumulatorDataHex)
-		const meta = parseAccumulatorMetaBits(mmrMetaBits)
-		const activePeaks: Uint8Array[] = peaks.slice(0, meta.peakCount) // only active peaks
-		const activePeaksAsCids: CID<unknown, 113, 27, 1>[] = activePeaks.map(contractPeakHexToMmrCid)
-		const activePeaksWithHeight: PeakWithHeight[] = activePeaksAsCids.map((cid, i) => ({
-			cid,
+	const { ethereumHttpRpcUrl, contractAddress, block = "latest" } = params
+	const result: string = await callContractView(
+		ethereumHttpRpcUrl, contractAddress.toString(), getSelector("getState()"), block
+	)
+	// A rollback may precede deployment of the application. An empty return by itself
+	// is not proof of that: verify code at exactly the same historical block.
+	if (result === "0x" && block !== "latest" && block !== "pending") {
+		const code = await ethRpcFetch(ethereumHttpRpcUrl, "eth_getCode", [contractAddress.toString(), block])
+		if (code === "0x") return { meta: parseAccumulatorMetaBits(0n), peaks: [] }
+	}
+	const [mmrMetaBits, peaks] = parseGetStateResult(result)
+	const meta = parseAccumulatorMetaBits(mmrMetaBits)
+	return {
+		meta,
+		peaks: peaks.slice(0, meta.peakCount).map((peak, i) => ({
+			cid: contractPeakHexToMmrCid(peak),
 			height: meta.peakHeights[i],
-		}))
-		return { meta, peaks: activePeaksWithHeight }
-	} catch (err) {
-		logger.error(`[getState] Error: ${err}`)
-		throw err
+		})),
 	}
 }
 
-// --------------------- EVENTS --------------------
-// Helper to format block numbers as 0x-prefixed hex strings
 function toHexBlock(n: number): string {
 	return "0x" + n.toString(16)
 }
 
-// Finds LeafAppended events using eth_getLogs.
-// @param ethereumHttpRpcUrl string
-// @param contractAddress string
-// @param eventTopic string (keccak256 hash of event signature)
-// @param fromBlock string (hex or "latest")
-// @param toBlock string (hex or "latest")
-// @returns Promise<NormalizedLeafAppendedtEvent[]> (array of log objects)
+/** Find this accumulator's append events by emitting address and event signature. */
 export async function getLeafAppendedLogs(params: {
 	ethereumHttpRpcUrl: string
 	contractAddress: EthereumAddress
 	fromBlock: number
 	toBlock: number
-	specificAccounts?: EthereumAddress[]
 	blockHash?: string
 }): Promise<NormalizedLeafAppendedEvent[]> {
-	const { ethereumHttpRpcUrl, contractAddress, fromBlock, toBlock, specificAccounts, blockHash } = params
+	const { ethereumHttpRpcUrl, contractAddress, fromBlock, toBlock, blockHash } = params
 	const eventTopic = getEventTopic(LEAF_APPENDED_EVENT_SIGNATURE)
-
-	// Build the filter object with topics
-	let filter: any = {
+	const filter = {
 		address: contractAddress.toString(),
+		topics: [eventTopic],
 		...logBlockFilter(fromBlock, toBlock, blockHash),
 	}
-
-	// For LeafAppended events, the account is an indexed parameter (the first one)
-	// so we can use topics to filter directly at the RPC level
-	if (specificAccounts && specificAccounts.length > 0) {
-		// Format: [eventSignatureHash, accountAddressPadded]
-		if (specificAccounts.length === 1) {
-			// Single account - use exact match
-			const paddedAddress = "0x" + specificAccounts[0].toString().slice(2).padStart(64, "0")
-			filter.topics = [eventTopic, paddedAddress]
-		} else {
-			// Multiple accounts - use OR condition
-			const paddedAddresses = specificAccounts.map((address) => "0x" + address.toString().slice(2).padStart(64, "0"))
-			filter.topics = [eventTopic, paddedAddresses]
+	const logs: RawEthLog[] = await ethRpcFetch(ethereumHttpRpcUrl, "eth_getLogs", [filter])
+	verifyLogBlocks(logs, fromBlock, blockHash)
+	for (const log of logs) {
+		if (typeof log?.address !== "string" || log.address.toLowerCase() !== contractAddress.toString()) {
+			throw new Error("Ethereum RPC returned logs from a different accumulator")
 		}
-	} else {
-		// No account filtering
-		filter.topics = [eventTopic]
+		const number = Number(log.blockNumber)
+		if (!Number.isSafeInteger(number) || number < fromBlock || number > toBlock) {
+			throw new Error("Ethereum RPC returned logs outside the requested block range")
+		}
 	}
-
-	const rawLogs: RawEthLog[] = await ethRpcFetch(ethereumHttpRpcUrl, "eth_getLogs", [filter])
-	verifyLogBlocks(rawLogs, fromBlock, blockHash)
-
-	// Warn if topics[0] does not match eventTopic
-	rawLogs.forEach((log, idx) => {
-		const topic0 = log.topics ? log.topics[0].toLowerCase() : undefined
-		const expected = eventTopic.toLowerCase()
-		if (!log.topics || topic0 !== expected) {
-			logger.warn(
-				`[WARN:getLeafAppendedLogs] log[${idx}].topics[0] does not match eventTopic. topics[0]: ${topic0} | eventTopic: ${expected}`
-			)
-		}
-	})
-
-	// Parse the logs
-	const parsedLogs: NormalizedLeafAppendedEvent[] = await Promise.all(
-		rawLogs
-			.filter((log) => log.topics && log.topics[0] && log.topics[0].toLowerCase() === eventTopic.toLowerCase())
-			.map(async (log) => {
-				return await parseLeafAppendedLog(log)
-			})
-	)
-
-	return parsedLogs
-}
-
-/**
- * Finds NewAccountInitialized events using eth_getLogs.
- * @param ethereumHttpRpcUrl string
- * @param contractAddress EthereumAddress
- * @param fromBlock number (block number to start searching from)
- * @param toBlock number (block number to end searching at)
- * @param eventTopicOverride string (optional, keccak256 hash of event signature)
- * @returns Promise<NormalizedNewAccountInitializedEvent[]> (array of normalized event objects)
- */
-export async function getNewAccountInitializedLogs(params: {
-	ethereumHttpRpcUrl: string
-	contractAddress: EthereumAddress
-	fromBlock: number
-	toBlock: number
-	blockHash?: string
-}): Promise<NormalizedNewAccountInitializedEvent[]> {
-	const { ethereumHttpRpcUrl, contractAddress, fromBlock, toBlock, blockHash } = params
-	const eventTopic = getEventTopic("NewAccountInitialized(address)")
-	const rawLogs: RawEthLog[] = await ethRpcFetch(ethereumHttpRpcUrl, "eth_getLogs", [
-		{
-			address: contractAddress.toString(),
-			topics: [eventTopic],
-			...logBlockFilter(fromBlock, toBlock, blockHash),
-		},
-	])
-	verifyLogBlocks(rawLogs, fromBlock, blockHash)
-
-	// Warn if topics[0] does not match eventTopic
-	rawLogs.forEach((log, idx) => {
-		const topic0 = log.topics ? log.topics[0].toLowerCase() : undefined
-		const expected = eventTopic.toLowerCase()
-		if (!log.topics || topic0 !== expected) {
-			logger.warn(
-				`[WARN:getNewAccountInitializedLogs] log[${idx}].topics[0] does not match eventTopic. topics[0]: ${topic0} | eventTopic: ${expected}`
-			)
-		}
-	})
-
-	// Parse the logs - no need to filter by account as we did it at the RPC level
-	const parsedLogs: NormalizedNewAccountInitializedEvent[] = rawLogs
-		.filter((log) => log.topics && log.topics[0] && log.topics[0].toLowerCase() === eventTopic.toLowerCase())
-		.map((log) => parseNewAccountInitializedLog(log))
-
-	return parsedLogs
+	return Promise.all(logs.map(parseLeafAppendedLog))
 }

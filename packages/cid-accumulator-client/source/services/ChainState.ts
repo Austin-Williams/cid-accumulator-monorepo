@@ -27,31 +27,36 @@ export class ChainChangedError extends Error {
 type AccountCheckpoint = { leafCount: number; lastInsertBlock: number }
 type Recovery = {
 	block: ChainBlock
-	legacy: boolean
+	bootstrap: boolean
 	accounts: Array<{ address: string; from: number; to: number; peaks: Array<{ cid: string; height: number }> }>
-	registryAccounts: string[]
-	removedRegistryAccounts: string[]
 }
 
-const chains = new WeakMap<StorageCoordinator, ChainState>()
+type SharedChainState = {
+	address: string
+	rollbackSubscribers: Set<(event: ChainRollback) => void>
+	resetSubscribers: Set<() => void>
+}
+
+const chains = new WeakMap<StorageCoordinator, SharedChainState>()
 export async function getChainState(storage: Storage, contract: AccumulatorContract): Promise<ChainState> {
 	const coordinator = await getStorageCoordinator(storage)
-	let chain = chains.get(coordinator)
-	if (!chain) {
-		chain = new ChainState(storage, contract, coordinator)
-		chains.set(coordinator, chain)
+	let shared = chains.get(coordinator)
+	if (!shared) {
+		shared = { address: contract.address.toString(), rollbackSubscribers: new Set(), resetSubscribers: new Set() }
+		chains.set(coordinator, shared)
+	} else if (shared.address !== contract.address.toString()) {
+		throw new Error("Different accumulator contracts require separate storage scopes")
 	}
-	return chain
+	return new ChainState(storage, contract, coordinator, shared)
 }
 
-/** One recovery/write gate for every service sharing this database in this process. */
+/** Shares recovery coordination and notifications while using this caller's storage and RPC provider. */
 export class ChainState {
-	private rollbackSubscribers = new Set<(event: ChainRollback) => void>()
-	private resetSubscribers = new Set<() => void>()
 	constructor(
-		private storage: Storage,
-		private contract: AccumulatorContract,
-		private coordinator: StorageCoordinator
+		private readonly storage: Storage,
+		private readonly contract: AccumulatorContract,
+		private readonly coordinator: StorageCoordinator,
+		private readonly shared: SharedChainState
 	) {}
 
 	get generation(): number {
@@ -59,15 +64,15 @@ export class ChainState {
 	}
 
 	subscribeRollback(callback: (event: ChainRollback) => void): () => void {
-		this.rollbackSubscribers.add(callback)
+		this.shared.rollbackSubscribers.add(callback)
 		return () => {
-			this.rollbackSubscribers.delete(callback)
+			this.shared.rollbackSubscribers.delete(callback)
 		}
 	}
 	subscribeReset(callback: () => void): () => void {
-		this.resetSubscribers.add(callback)
+		this.shared.resetSubscribers.add(callback)
 		return () => {
-			this.resetSubscribers.delete(callback)
+			this.shared.resetSubscribers.delete(callback)
 		}
 	}
 
@@ -154,7 +159,7 @@ export class ChainState {
 				(await this.contract.getBlock(recovery.block.number)).hash !== recovery.block.hash
 			) {
 				const ancestor = head ? await this.commonAncestor(head, latest) : await this.contract.getBlock("finalized")
-				recovery = await this.prepareRecovery(ancestor, recovery.legacy, recovery)
+				recovery = await this.prepareRecovery(ancestor, recovery.bootstrap, recovery)
 			}
 			await this.recover(recovery)
 		} else if (
@@ -164,7 +169,7 @@ export class ChainState {
 		) {
 			await this.recover(await this.prepareRecovery(await this.commonAncestor(head, latest), false))
 		} else if (!head) {
-			// Old numeric cursors prove no branch identity. Validate their payload prefix once.
+			// Payloads without a chain checkpoint need their canonical prefix validated once.
 			await this.bootstrapAccounts()
 			const finalized = await this.contract.getBlock("finalized")
 			await this.recover(await this.prepareRecovery(finalized, true))
@@ -248,21 +253,17 @@ export class ChainState {
 		}
 	}
 
-	private async prepareRecovery(block: ChainBlock, legacy: boolean, previous?: Recovery): Promise<Recovery> {
+	private async prepareRecovery(block: ChainBlock, bootstrap: boolean, previous?: Recovery): Promise<Recovery> {
 		const accounts: Recovery["accounts"] = []
 		const previousCounts = new Map(previous?.accounts.map((account) => [account.address, account.to]) ?? [])
-		const birthday = await this.contract.getSingletonBirthdayBlockNum()
 		for await (const { key, value } of this.storage.iterate("chain:account:")) {
 			const checkpoint: AccountCheckpoint = JSON.parse(value)
-			if (!legacy && checkpoint.lastInsertBlock <= block.number) continue
+			if (!bootstrap && checkpoint.lastInsertBlock <= block.number) continue
 			const address = key.slice("chain:account:".length)
 			const account = EthereumAddress.fromString(address)
-			const state =
-				block.number < birthday
-					? { meta: { leafCount: 0 }, peaks: [] }
-					: await this.contract.getState(account, { blockHash: block.hash, requireCanonical: true })
+			const state = await this.contract.getState({ blockHash: block.hash, requireCanonical: true })
 			let from = state.meta.leafCount
-			if (legacy && from > 0) {
+			if (bootstrap && from > 0) {
 				const mmr = new MerkleMountainRange()
 				let complete = true
 				for (let i = 0; i < from; i++) {
@@ -284,43 +285,14 @@ export class ChainState {
 				peaks: from === 0 ? [] : state.peaks.map((p) => ({ cid: p.cid.toString(), height: p.height })),
 			})
 		}
-		// Persist the complete registry rewrite before deleting any entries. A retry must
-		// retain accounts whose old numeric keys were already removed by an interrupted run.
-		const candidates = new Set(previous?.registryAccounts ?? [])
-		for await (const { value } of this.storage.iterate("account-registry:account:")) candidates.add(value)
-		const registryAccounts: string[] = []
-		const removedRegistryAccounts = new Set(previous?.removedRegistryAccounts ?? [])
-		for (const address of candidates) {
-			const discovery = await this.storage.get(`account-registry:discovered:${address}`)
-			let keep = discovery !== undefined && Number(discovery) <= block.number
-			if (discovery === undefined && block.number >= birthday) {
-				keep =
-					(
-						await this.contract.getState(EthereumAddress.fromString(address), {
-							blockHash: block.hash,
-							requireCanonical: true,
-						})
-					).meta.leafCount > 0
-			}
-			if (keep) {
-				registryAccounts.push(address)
-				removedRegistryAccounts.delete(address)
-			} else removedRegistryAccounts.add(address)
-		}
-		const recovery = {
-			block,
-			legacy,
-			accounts,
-			registryAccounts,
-			removedRegistryAccounts: [...removedRegistryAccounts],
-		}
+		const recovery = { block, bootstrap, accounts }
 		await this.storage.put("chain:recovery", JSON.stringify(recovery))
 		return recovery
 	}
 
 	private async recover(recovery: Recovery): Promise<void> {
 		this.coordinator.generation++
-		for (const callback of this.resetSubscribers) {
+		for (const callback of this.shared.resetSubscribers) {
 			try {
 				callback()
 			} catch (error) {
@@ -336,28 +308,16 @@ export class ChainState {
 		}
 		for await (const { key } of this.storage.iterate("events:")) {
 			const match = key.match(/:block:(\d+)$/)
-			if (recovery.legacy || (match && Number(match[1]) > recovery.block.number)) await this.storage.delete(key)
+			if (recovery.bootstrap || (match && Number(match[1]) > recovery.block.number)) await this.storage.delete(key)
 		}
 		const cursor = await this.storage.get("events:latestPolledBlock")
 		if (cursor !== undefined)
 			await this.storage.put("events:latestPolledBlock", String(Math.min(Number(cursor), recovery.block.number)))
-		const birthday = await this.contract.getSingletonBirthdayBlockNum()
-		const registryCursor = await this.storage.get("account-registry:lastProcessedBlock")
-		if (registryCursor !== undefined)
-			await this.storage.put(
-				"account-registry:lastProcessedBlock",
-				String(recovery.legacy ? Math.max(0, birthday - 1) : Math.min(Number(registryCursor), recovery.block.number))
-			)
-		for await (const { key } of this.storage.iterate("account-registry:account:")) await this.storage.delete(key)
-		for (let i = 0; i < recovery.registryAccounts.length; i++)
-			await this.storage.put(`account-registry:account:${i}`, recovery.registryAccounts[i])
-		for (const address of recovery.removedRegistryAccounts)
-			await this.storage.delete(`account-registry:discovered:${address}`)
 		if ((await this.contract.getBlock(recovery.block.number)).hash !== recovery.block.hash)
 			throw new ChainChangedError()
 		await this.storage.put("chain:head", JSON.stringify(recovery.block))
 		await this.storage.delete("chain:recovery")
-		for (const callback of this.resetSubscribers) {
+		for (const callback of this.shared.resetSubscribers) {
 			try {
 				callback()
 			} catch (error) {
@@ -372,7 +332,7 @@ export class ChainState {
 				block: recovery.block,
 				peaks: account.peaks.map((p) => ({ cid: CID.parse(p.cid), height: p.height })),
 			}
-			for (const callback of this.rollbackSubscribers) {
+			for (const callback of this.shared.rollbackSubscribers) {
 				try {
 					callback(event)
 				} catch (error) {

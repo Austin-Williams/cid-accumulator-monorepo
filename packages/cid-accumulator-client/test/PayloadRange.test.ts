@@ -19,11 +19,11 @@ import { hexStringToUint8Array } from "../source/utils/codec.js"
 async function fixture(t: TestContext, payloads: string[]) {
 	const account = new EthereumAddress("0x" + "ab".repeat(20))
 	const storage = new InMemoryAdapter()
-	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
+	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: account })
 	mockChain(t, contract, storage)
 	const events = new EventCacheService(storage, contract, defaultLightClientEventCacheServiceConfig)
 	const resolver = new IpfsResolver(storage, defaultLightClientIpfsResolverConfig)
-	const client = new DataClient(account, {
+	const client = new DataClient({
 		storage,
 		accumulatorContract: contract,
 		eventCacheService: events,
@@ -44,33 +44,26 @@ async function fixture(t: TestContext, payloads: string[]) {
 	return { client, storage, account }
 }
 
-describe("payload ranges containing empty payloads", () => {
-	test("a single empty payload is returned consistently by individual and range reads", async (t) => {
-		const { client } = await fixture(t, [""])
-		assert.equal(await client.getPayload(0), "")
-		assert.deepEqual(await client.getPayloadInRange(0, 0), [{ index: 0, payload: "" }])
+describe("32-byte payload ranges", () => {
+	test("zero-valued payloads retain all bytes in individual and range reads", async (t) => {
+		const zero = "00".repeat(32)
+		const { client } = await fixture(t, [zero])
+		assert.equal(await client.getPayload(0), zero)
+		assert.deepEqual(await client.getPayloadInRange(0, 0), [{ index: 0, payload: zero }])
 	})
 
-	test("mixed ranges retain empty payloads at the start, middle, and end", async (t) => {
-		const payloads = ["", "00", "", "beef", ""]
+	test("ranges preserve payload order and clip to the highest available index", async (t) => {
+		const payloads = [0, 1, 255, 0, 2].map(value => value.toString(16).padStart(2, "0").repeat(32))
 		const { client } = await fixture(t, payloads)
 		const expected = payloads.map((payload, index) => ({ index, payload }))
 		assert.deepEqual(await client.getPayloadInRange(0, 4), expected)
 		assert.deepEqual(await client.getPayloadInRange(1, 3), expected.slice(1, 4))
 		assert.deepEqual(await client.getPayloadInRange(2, 99), expected.slice(2))
+		assert.deepEqual(await client.getPayloadInRange(5, 99), [])
 	})
 
-	test("a range of empty payloads keeps its leaf indices and respects the available boundary", async (t) => {
-		const { client } = await fixture(t, ["", "", ""])
-		assert.deepEqual(await client.getPayloadInRange(1, 99), [
-			{ index: 1, payload: "" },
-			{ index: 2, payload: "" },
-		])
-		assert.deepEqual(await client.getPayloadInRange(3, 99), [])
-	})
-
-	test("a missing leaf record still raises an error instead of becoming an empty payload", async (t) => {
-		const { client, storage, account } = await fixture(t, [""])
+	test("a missing leaf record is not returned as a zero-valued payload", async (t) => {
+		const { client, storage, account } = await fixture(t, ["00".repeat(32)])
 		await storage.delete(`account:${account}:leaf:0:account`)
 		assert.equal(await client.getPayload(0), undefined)
 		await assert.rejects(client.getPayloadInRange(0, 0), /No payload found for leaf index 0/)

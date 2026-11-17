@@ -35,7 +35,7 @@ function fixture(t: TestContext, lazyLoadEvents = true) {
 	const storage = new InMemoryAdapter()
 	// Model a persistent cache across stops so restart tests do not replay historical data.
 	t.mock.method(storage, "stop", () => {})
-	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
+	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: account })
 	mockChain(t, contract, storage)
 	const logs: NormalizedLeafAppendedEvent[] = []
 	const chains = new Map<string, { mmr: MerkleMountainRange; lastBlock: number }>()
@@ -48,10 +48,9 @@ function fixture(t: TestContext, lazyLoadEvents = true) {
 		}
 		return chain
 	}
-	const getBirthday = t.mock.method(contract, "getSingletonBirthdayBlockNum", async () => 1)
 	const getBlock = t.mock.method(contract, "getBlockNumber", async () => latestBlock)
-	const getState = t.mock.method(contract, "getState", async (address: EthereumAddress) => {
-		const { mmr, lastBlock } = chainFor(address)
+	const getState = t.mock.method(contract, "getState", async () => {
+		const { mmr, lastBlock } = chainFor(account)
 		const bits = mmr.leafCount.toString(2)
 		const heights = [...bits].flatMap((bit, index) => (bit === "1" ? [bits.length - index - 1] : []))
 		return {
@@ -60,13 +59,13 @@ function fixture(t: TestContext, lazyLoadEvents = true) {
 				peakCount: heights.length,
 				peakHeights: heights,
 				previousInsertBlockNumber: lastBlock,
-				deployBlockNumber: 1,
+				deployBlockNumber: logs.find(event => event.account.toString() === account.toString())?.blockNumber ?? 0,
 			},
 			peaks: mmr.peaks.map((cid, index) => ({ cid, height: heights[index] })),
 		}
 	})
 	const getLogs = t.mock.method(contract, "getLeafAppendedLogs", async (from: number, to: number) =>
-		logs.filter((event) => event.blockNumber >= from && event.blockNumber <= to)
+		logs.filter((event) => event.account.toString() === account.toString() && event.blockNumber >= from && event.blockNumber <= to)
 	)
 	const events = new EventCacheService(storage, contract, {
 		...defaultLightClientEventCacheServiceConfig,
@@ -75,7 +74,7 @@ function fixture(t: TestContext, lazyLoadEvents = true) {
 	const subscriptions = t.mock.method(events, "subscribe")
 	const resolver = new IpfsResolver(storage, defaultLightClientIpfsResolverConfig)
 	t.mock.method(resolver, "fullyResolveCID", async () => undefined)
-	const client = new LightClient(account, {
+	const client = new LightClient({
 		storage,
 		accumulatorContract: contract,
 		eventCacheService: events,
@@ -118,7 +117,7 @@ function fixture(t: TestContext, lazyLoadEvents = true) {
 			await setImmediate()
 		}
 	}
-	return { client, events, account, getBirthday, getBlock, getState, getLogs, subscriptions, append, tick }
+	return { client, events, account, getBlock, getState, getLogs, subscriptions, append, tick }
 }
 
 describe("light client event subscriptions", { concurrency: false, timeout: 5000 }, () => {
@@ -212,7 +211,7 @@ describe("light client event subscriptions", { concurrency: false, timeout: 5000
 			const fail = async () => {
 				throw failure
 			}
-			if (stage === "initialization") f.getBirthday.mock.mockImplementationOnce(fail)
+			if (stage === "initialization") t.mock.method(f.events, "init", fail, { times: 1 })
 			else if (stage === "polling startup") f.getBlock.mock.mockImplementationOnce(fail)
 			else f.getState.mock.mockImplementationOnce(fail)
 			await assert.rejects(f.client.start(), (error) => error === failure)

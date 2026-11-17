@@ -28,11 +28,18 @@ function fixture(t: TestContext, lazyLoadEvents = true) {
 	const intervals = t.mock.method(globalThis, "setInterval")
 	const storage = new InMemoryAdapter()
 	const account = new EthereumAddress("0x" + "ab".repeat(20))
-	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
+	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: account })
 	mockChain(t, contract, storage)
 	let head = 10
 	const logs: NormalizedLeafAppendedEvent[] = []
-	t.mock.method(contract, "getSingletonBirthdayBlockNum", async () => 1)
+	t.mock.method(contract, "getState", async () => ({
+		meta: {
+			leafCount: logs.length, peakCount: 0, peakHeights: [],
+			previousInsertBlockNumber: logs.at(-1)?.blockNumber ?? 0,
+			deployBlockNumber: logs[0]?.blockNumber ?? 0,
+		},
+		peaks: [],
+	}))
 	t.mock.method(contract, "getBlockNumber", async () => head)
 	const recordsFor = (from: number, to: number) =>
 		logs.filter((event) => event.blockNumber >= from && event.blockNumber <= to)
@@ -126,8 +133,8 @@ describe("event cache restart catch-up", { concurrency: false, timeout: 5000 }, 
 			received.map((record) => record.leafIndex),
 			[0, 1]
 		)
-		assert.equal(await f.storage.get("events:block:12"), "[]")
-		assert.equal(await f.storage.get("events:block:13"), "[]")
+		assert.equal(await f.storage.get(`events:account:${f.account}:block:12`), "[]")
+		assert.equal(await f.storage.get(`events:account:${f.account}:block:13`), "[]")
 		assert.deepEqual(f.received, [])
 	})
 
@@ -197,7 +204,7 @@ describe("event cache restart catch-up", { concurrency: false, timeout: 5000 }, 
 			let fail = true
 			t.mock.method(f.storage, "put", async (key: string, value: string) => {
 				const matches =
-					failure === "cursor" ? key === "events:latestPolledBlock" && value === "11" : key === "events:block:11"
+					failure === "cursor" ? key === "events:latestPolledBlock" && value === "11" : key === `events:account:${f.account}:block:11`
 				if (matches && fail) {
 					fail = false
 					throw error

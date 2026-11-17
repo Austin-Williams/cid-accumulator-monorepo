@@ -52,17 +52,16 @@ async function fixture(t: TestContext, payloads: Uint8Array[]) {
 	}
 	const root = await mmr.rootCID()
 	const storage = new InMemoryAdapter()
-	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
+	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: account })
 	mockChain(t, contract, storage)
 	const getState = t.mock.method(contract, "getState", async () => state)
-	t.mock.method(contract, "getSingletonBirthdayBlockNum", async () => 1)
 	const getLogs = t.mock.method(contract, "getLeafAppendedLogs", async (from: number, to: number) =>
 		events.filter((event) => event.blockNumber >= from && event.blockNumber <= to)
 	)
 	const eventCacheService = new EventCacheService(storage, contract, defaultLightClientEventCacheServiceConfig)
 	const resolver = new IpfsResolver(storage, defaultLightClientIpfsResolverConfig)
 	const resolve = t.mock.method(resolver, "fullyResolveCID", async () => undefined)
-	const client = new DataClient(account, {
+	const client = new DataClient({
 		storage,
 		accumulatorContract: contract,
 		eventCacheService,

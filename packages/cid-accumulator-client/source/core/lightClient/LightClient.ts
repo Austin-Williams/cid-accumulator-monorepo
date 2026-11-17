@@ -1,5 +1,4 @@
 import { DataClient } from "../dataClient/DataClient.js"
-import { EthereumAddress } from "../../ethereum/EthereumAddress.js"
 import { createLogger } from "../../utils/logging.js"
 
 import type { DataClientDependencies } from "../dataClient/DataClient.types.js"
@@ -16,15 +15,15 @@ export class LightClient extends DataClient implements LifecycleComponent {
 	private initializedComponents: LifecycleComponent[] = []
 	private unsubscribeFromEventCacheService?: () => void
 
-	constructor(accountAddress: EthereumAddress, dependencies: DataClientDependencies) {
-		super(accountAddress, dependencies)
+	constructor(dependencies: DataClientDependencies) {
+		super(dependencies)
 		this.spinUpOrder = [
 			dependencies.storage,
 			dependencies.accumulatorContract,
 			dependencies.eventCacheService,
 			dependencies.ipfsResolver,
 		]
-		this.logger = createLogger(`LightClient ${accountAddress.toString()}`)
+		this.logger = createLogger(`LightClient ${this.account.toString()}`)
 	}
 
 	/**
@@ -147,6 +146,12 @@ export class LightClient extends DataClient implements LifecycleComponent {
 			}
 			// start syncing (blocking)
 			try {
+				// A retained sync can belong to a stopped run and an older chain snapshot.
+				if (this.syncing) {
+					try { await this.sync() } catch { /* Retry with this run's fresh snapshot below. */ }
+					if (!this.isCurrentStartup(generation)) return
+				}
+				this.completedInitialSync = false
 				await this.sync()
 				if (!this.isCurrentStartup(generation)) return
 			} catch (error) {

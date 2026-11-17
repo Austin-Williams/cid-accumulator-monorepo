@@ -23,10 +23,6 @@ export async function runSeeder() {
 	if (cliArgs.nodeDbPath) {
 		customConfig.nodeDbPath = cliArgs.nodeDbPath
 	}
-	if (cliArgs.specificAccountsOnly) {
-		customConfig.accountRegistryServiceConfig = { ...customConfig.accountRegistryServiceConfig, specificAccountsOnly: cliArgs.specificAccountsOnly }
-		customConfig.eventCacheServiceConfig = { ...customConfig.eventCacheServiceConfig, specificAccountsOnly: cliArgs.specificAccountsOnly }
-	}
 	if (cliArgs.remotePin) {
 		customConfig.ipfsPinnerConfig = { ...customConfig.ipfsPinnerConfig, remotePin: cliArgs.remotePin }
 	}
@@ -61,7 +57,6 @@ export async function runSeeder() {
 // --- CLI ARGUMENT PARSING ---
 // Supported args:
 // --accumulatorContractAddress (required string)
-// --specificAccountsOnly (JSON array of ethereum addresses)
 // --remotePin (boolean)
 // --ethereumHttpRpcUrl (string)
 // --ipfsGatewayUrl (string)
@@ -70,7 +65,6 @@ export async function runSeeder() {
 
 interface CliArgs {
 	accumulatorContractAddress?: string
-	specificAccountsOnly?: string[]
 	remotePin?: boolean
 	ethereumHttpRpcUrl?: string
 	ipfsGatewayUrl?: string
@@ -90,15 +84,6 @@ function parseCliArgs(): CliArgs {
 			const value = separatorIndex === -1 ? undefined : arg.slice(separatorIndex + 1);
 
 			switch (key) {
-				case 'specificAccountsOnly':
-					try {
-						args.specificAccountsOnly = JSON.parse(value ?? process.argv[++i]);
-					} catch {
-						console.error('Invalid --specificAccountsOnly value. Must be a JSON array.');
-						process.exit(1);
-					}
-					break;
-
 				case 'accumulatorContractAddress':
 					args.accumulatorContractAddress = value ?? process.argv[++i];
 					break;

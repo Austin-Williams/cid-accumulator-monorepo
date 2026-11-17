@@ -24,7 +24,10 @@ function fixture(t: TestContext) {
 	mockChain(t, contract, storage)
 	let head = 10
 	const logs: NormalizedLeafAppendedEvent[] = []
-	t.mock.method(contract, "getSingletonBirthdayBlockNum", async () => 1)
+	t.mock.method(contract, "getState", async () => ({
+		meta: { leafCount: logs.length, peakCount: 0, peakHeights: [], previousInsertBlockNumber: logs.at(-1)?.blockNumber ?? 0, deployBlockNumber: logs[0]?.blockNumber ?? 0 },
+		peaks: [],
+	}))
 	t.mock.method(contract, "getBlockNumber", async () => head)
 	t.mock.method(contract, "getLeafAppendedLogs", async (from: number, to: number) =>
 		logs.filter((record) => record.blockNumber >= from && record.blockNumber <= to)
@@ -62,7 +65,7 @@ function fixture(t: TestContext) {
 		logs.push({
 			account,
 			leafIndex: logs.length,
-			payload: Uint8Array.of(logs.length + 1),
+			payload: new Uint8Array(32).fill(logs.length + 1),
 			blockNumber: ++head,
 			previousInsertBlockNumber: logs[logs.length - 1]?.blockNumber ?? 0,
 			mergeLeftHashes: [],

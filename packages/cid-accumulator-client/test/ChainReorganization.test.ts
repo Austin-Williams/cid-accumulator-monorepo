@@ -7,7 +7,6 @@ import {
 	defaultLightClientAccumulatorContractConfig,
 	defaultLightClientEventCacheServiceConfig,
 	defaultLightClientIpfsResolverConfig,
-	defaultSeederAccountRegistryServiceConfig,
 } from "../source/config/defaultConfig.js"
 import { LightClient } from "../source/core/lightClient/LightClient.js"
 import { AccumulatorContract } from "../source/ethereum/AccumulatorContract.js"
@@ -17,8 +16,6 @@ import { IpfsResolver } from "../source/ipfs/IpfsResolver.js"
 import { IpfsPinner } from "../source/ipfs/IpfsPinner.js"
 import { MerkleMountainRange } from "../source/mmr/MerkleMountainRange.js"
 import { getRootCIDFromPeaks } from "../source/mmr/utils.js"
-import { AccountRegistryService } from "../source/services/AccountRegistryService.js"
-import { DataClientManager } from "../source/services/DataClientManager.js"
 import { EventCacheService } from "../source/services/EventCacheService.js"
 import { PinningService } from "../source/services/PinningService.js"
 import { InMemoryAdapter } from "../source/storage/adapters/InMemoryAdapter.js"
@@ -34,7 +31,10 @@ function deferred() {
 	return { promise, resolve }
 }
 
-async function fixture(t: TestContext) {
+const payloadBytes = (value: number) => new Uint8Array(32).fill(value)
+const payloadHex = (value: number) => value.toString(16).padStart(2, "0").repeat(32)
+
+async function fixture(t: TestContext, startEmpty = false) {
 	t.mock.method(console, "log", () => {})
 	t.mock.method(console, "warn", () => {})
 	t.mock.method(console, "error", () => {})
@@ -62,17 +62,17 @@ async function fixture(t: TestContext) {
 		while (cursor.block.number > number) cursor = history.get(cursor.block.parentHash)!
 		return cursor
 	}
-	async function append(payload: number, parent = tip): Promise<BranchBlock> {
-		const payloads = [...parent.payloads, payload]
+	async function append(payload: number | undefined, parent = tip): Promise<BranchBlock> {
+		const payloads = payload === undefined ? [...parent.payloads] : [...parent.payloads, payload]
 		const mmr = new MerkleMountainRange()
-		for (const [index, value] of parent.payloads.entries()) await mmr.addLeafWithTrail(index, Uint8Array.of(value))
+		for (const [index, value] of parent.payloads.entries()) await mmr.addLeafWithTrail(index, payloadBytes(value))
 		const previousPeaks = [...mmr.peaks]
-		await mmr.addLeafWithTrail(parent.payloads.length, Uint8Array.of(payload))
+		if (payload !== undefined) await mmr.addLeafWithTrail(parent.payloads.length, payloadBytes(payload))
 		const heights = [...payloads.length.toString(2)].flatMap((bit, index, bits) =>
 			bit === "1" ? [bits.length - index - 1] : []
 		)
 		const block = { number: parent.block.number + 1, hash: hash(), parentHash: parent.block.hash }
-		const mergeCount = previousPeaks.length + 1 - mmr.peaks.length
+		const mergeCount = previousPeaks.length + (payload === undefined ? 0 : 1) - mmr.peaks.length
 		const branch: BranchBlock = {
 			block,
 			payloads,
@@ -81,19 +81,19 @@ async function fixture(t: TestContext) {
 					leafCount: payloads.length,
 					peakCount: heights.length,
 					peakHeights: heights,
-					previousInsertBlockNumber: block.number,
-					deployBlockNumber: 0,
+					previousInsertBlockNumber: payload === undefined ? parent.state.meta.previousInsertBlockNumber : block.number,
+					deployBlockNumber: parent.state.meta.deployBlockNumber || (payload === undefined ? 0 : block.number),
 				},
 				peaks: mmr.peaks.map((cid, index) => ({ cid, height: heights[index] })),
 			},
-			logs: [
+			logs: payload === undefined ? [] : [
 				{
 					account,
 					leafIndex: payloads.length - 1,
-					payload: Uint8Array.of(payload),
+					payload: payloadBytes(payload!),
 					blockNumber: block.number,
 					blockHash: block.hash,
-					previousInsertBlockNumber: parent.block.number,
+					previousInsertBlockNumber: parent.state.meta.previousInsertBlockNumber,
 					mergeLeftHashes: previousPeaks.slice(previousPeaks.length - mergeCount).reverse(),
 				},
 			],
@@ -102,7 +102,6 @@ async function fixture(t: TestContext) {
 		tip = branch
 		return branch
 	}
-	t.mock.method(contract, "getSingletonBirthdayBlockNum", async () => 0)
 	t.mock.method(contract, "getBlockNumber", async () => tip.block.number)
 	t.mock.method(
 		contract,
@@ -111,19 +110,19 @@ async function fixture(t: TestContext) {
 			(typeof block === "number" ? canonical(block) : block === "finalized" ? genesis : tip).block
 	)
 	t.mock.method(contract, "getBlockByHash", async (hash: string) => history.get(hash)!.block)
-	t.mock.method(contract, "getState", async (_account: EthereumAddress, reference: BlockReference = "latest") => {
+	t.mock.method(contract, "getState", async (reference: BlockReference = "latest") => {
 		const selected = typeof reference === "object" ? history.get(reference.blockHash)! : tip
 		if (typeof reference === "object") assert.equal(canonical(selected.block.number).block.hash, reference.blockHash)
 		return selected.state
 	})
-	t.mock.method(contract, "getRootCID", async (_account: EthereumAddress, reference: BlockReference = "latest") => {
+	t.mock.method(contract, "getRootCID", async (reference: BlockReference = "latest") => {
 		const selected = typeof reference === "object" ? history.get(reference.blockHash)! : tip
 		return getRootCIDFromPeaks(selected.state.peaks.map((peak) => peak.cid))
 	})
 	t.mock.method(
 		contract,
 		"getLeafAppendedLogs",
-		async (from: number, to: number, _accounts?: EthereumAddress[], blockHash?: string) => {
+		async (from: number, to: number, blockHash?: string) => {
 			if (blockHash) return history.get(blockHash)!.logs
 			return Array.from({ length: to - from + 1 }, (_, index) => canonical(from + index).logs).flat()
 		}
@@ -134,7 +133,7 @@ async function fixture(t: TestContext) {
 	})
 	const resolver = new IpfsResolver(storage, defaultLightClientIpfsResolverConfig)
 	const resolve = t.mock.method(resolver, "fullyResolveCID", async () => undefined)
-	const client = new LightClient(account, {
+	const client = new LightClient({
 		storage,
 		accumulatorContract: contract,
 		eventCacheService: events,
@@ -160,34 +159,26 @@ async function fixture(t: TestContext) {
 		const callback = timer.arguments[0] as () => Promise<void>
 		await callback()
 	}
-	const prefix = await append(1)
+	const prefix = startEmpty ? genesis : await append(1)
 	await client.start()
 	notifications.length = 0
 	async function startPinning() {
-		const registry = new AccountRegistryService(storage, contract, {
-			...defaultSeederAccountRegistryServiceConfig,
-			specificAccountsOnly: [account],
-		})
-		const manager = new DataClientManager(storage, contract, registry, events, resolver)
-		await manager.init()
 		const pinner = new IpfsPinner(storage, defaultIpfsPinnerConfig)
 		t.mock.method(pinner, "init", async () => {})
 		t.mock.method(pinner, "putAndPin", async () => {})
-		const pinning = new PinningService(storage, contract, registry, manager, pinner, 67890)
+		const pinning = new PinningService(storage, contract, client, pinner, 67890)
 		t.after(() => {
 			pinning.stop()
-			manager.stop()
-			registry.stop()
 		})
 		await pinning.start()
 		return async () => {
 			const deadline = Date.now() + 1000
-			while (pinning.mmrs.get(account.toString())?.leafCount !== tip.payloads.length) {
+			while (pinning.mmr.leafCount !== tip.payloads.length) {
 				assert.ok(Date.now() < deadline, "Pinning should catch up to the replacement branch")
 				await setImmediate()
 			}
 			assert.equal(
-				(await pinning.mmrs.get(account.toString())!.rootCID()).toString(),
+				(await pinning.mmr.rootCID()).toString(),
 				(await getRootCIDFromPeaks(tip.state.peaks.map((peak) => peak.cid))).toString()
 			)
 		}
@@ -228,8 +219,8 @@ test(
 		await assertPinned()
 		assert.deepEqual(f.notifications, ["rollback:1", "append:1:3"])
 		assert.deepEqual(await f.client.getPayloadInRange(0, 1), [
-			{ index: 0, payload: "01" },
-			{ index: 1, payload: "03" },
+			{ index: 0, payload: payloadHex(1) },
+			{ index: 1, payload: payloadHex(3) },
 		])
 		assert.notEqual(
 			await f.storage.get(`account:${f.account}:leaf:1:rootCidAfterInsert`),
@@ -253,7 +244,7 @@ test(
 		await f.client.sync()
 		await assertPinned()
 		assert.equal(await f.storage.get("chain:recovery"), undefined)
-		assert.equal(await f.client.getPayload(1), "04")
+		assert.equal(await f.client.getPayload(1), payloadHex(4))
 
 		f.setTip(f.prefix)
 		await f.tick()
@@ -267,9 +258,9 @@ test(
 		await f.client.sync()
 		await assertPinned()
 		assert.deepEqual(await f.client.getPayloadInRange(0, 2), [
-			{ index: 0, payload: "01" },
-			{ index: 1, payload: "05" },
-			{ index: 2, payload: "06" },
+			{ index: 0, payload: payloadHex(1) },
+			{ index: 1, payload: payloadHex(5) },
+			{ index: 2, payload: payloadHex(6) },
 		])
 
 		f.client.stop()
@@ -280,9 +271,9 @@ test(
 		await assertPinned()
 		assert.deepEqual(f.notifications, ["rollback:1", "append:1:7", "append:2:8"])
 		assert.deepEqual(await f.client.getPayloadInRange(0, 2), [
-			{ index: 0, payload: "01" },
-			{ index: 1, payload: "07" },
-			{ index: 2, payload: "08" },
+			{ index: 0, payload: payloadHex(1) },
+			{ index: 1, payload: payloadHex(7) },
+			{ index: 2, payload: payloadHex(8) },
 		])
 	}
 )
@@ -300,8 +291,8 @@ test(
 			await release.promise
 			return {
 				async *[Symbol.asyncIterator]() {
-					yield { leafIndex: 0, payload: Uint8Array.of(1) }
-					yield { leafIndex: 1, payload: Uint8Array.of(2) }
+					yield { leafIndex: 0, payload: payloadBytes(1) }
+					yield { leafIndex: 1, payload: payloadBytes(2) }
 				},
 			}
 		})
@@ -316,82 +307,35 @@ test(
 		}
 		await result
 		await f.client.sync()
-		assert.equal(await f.client.getPayload(1), "03")
+		assert.equal(await f.client.getPayload(1), payloadHex(3))
 		assert.equal(f.client.completedInitialSync, true)
 	}
 )
 
-test(
-	"registry recovery preserves earlier accounts and discovers the replacement after an interrupted rewrite",
-	{ timeout: 5000 },
-	async (t) => {
-		const f = await fixture(t)
-		const orphan = new EthereumAddress("0x" + "cc".repeat(20))
-		const replacement = new EthereumAddress("0x" + "dd".repeat(20))
-		const oldBlock = await f.append(2)
-		const discoveries = new Map([
-			[f.prefix.block.hash, { account: f.account, blockNumber: 1, blockHash: f.prefix.block.hash }],
-			[oldBlock.block.hash, { account: orphan, blockNumber: 2, blockHash: oldBlock.block.hash }],
-		])
-		t.mock.method(
-			f.contract,
-			"getNewAccountInitializedLogs",
-			async (_from: number, _to: number, blockHash?: string) => {
-				const event = discoveries.get(blockHash!)
-				return event ? [event] : []
-			}
-		)
-		let resumePoll: (() => void) | undefined
-		const setTimeout = globalThis.setTimeout
-		t.mock.method(globalThis, "setTimeout", ((callback: () => void, delay: number, ...args: unknown[]) => {
-			if (delay !== 45678) return setTimeout(callback, delay, ...args)
-			resumePoll = callback
-			return 0
-		}) as any)
-		const registry = new AccountRegistryService(f.storage, f.contract, {
-			...defaultSeederAccountRegistryServiceConfig,
-			specificAccountsOnly: [],
-			pollingIntervalMs: 45678,
-		})
-		t.after(() => {
-			registry.stop()
-			resumePoll?.()
-		})
-		async function waitForPoll() {
-			const deadline = Date.now() + 1000
-			while (!resumePoll) {
-				assert.ok(Date.now() < deadline, "Registry polling should complete")
-				await setImmediate()
-			}
-		}
-		await registry.start()
-		await waitForPoll()
-		assert.deepEqual(registry.knownAccounts.map(String), [f.account, orphan].map(String))
-		const newBlock = await f.append(3, f.prefix)
-		discoveries.set(newBlock.block.hash, { account: replacement, blockNumber: 2, blockHash: newBlock.block.hash })
-		const remove = f.storage.delete.bind(f.storage)
-		let interrupted = false
-		t.mock.method(f.storage, "delete", async (key: string) => {
-			if (!interrupted && key === "account-registry:account:1") {
-				interrupted = true
-				throw new Error("Interrupted registry rewrite")
-			}
-			await remove(key)
-		})
-		await f.tick()
-		assert.equal(interrupted, true)
-		assert.equal(await f.storage.get("account-registry:account:0"), undefined)
-		assert.ok(await f.storage.get("chain:recovery"))
-		await f.tick()
-		assert.equal(await f.storage.get("chain:recovery"), undefined)
-		const resume = resumePoll!
-		resumePoll = undefined
-		resume()
-		await waitForPoll()
-		assert.deepEqual(registry.knownAccounts.map(String), [f.account, replacement].map(String))
-		assert.equal(await f.storage.get("account-registry:account:0"), f.account.toString())
-		assert.equal(await f.storage.get("account-registry:account:1"), replacement.toString())
-		assert.equal(await f.storage.get(`account-registry:discovered:${orphan}`), undefined)
-		assert.equal(await f.storage.get("account-registry:lastProcessedBlock"), "2")
-	}
-)
+test("an empty accumulator follows its first append and refreshes history after that append is reorganized", { timeout: 5000 }, async (t) => {
+	const f = await fixture(t, true)
+	const emptyBlock = await f.append(undefined)
+	await f.tick()
+	await f.events.syncEventsUpToLatestBlock()
+	assert.equal(await f.client.getHighestIndex(), -1)
+
+	await f.append(9)
+	await f.tick()
+	await f.client.sync()
+	assert.equal(await f.client.getPayload(0), payloadHex(9))
+	assert.equal((await f.contract.getState()).meta.deployBlockNumber, 2)
+
+	await f.append(undefined, emptyBlock)
+	await f.tick()
+	await f.client.sync()
+	assert.equal(await f.client.getHighestIndex(), -1)
+	assert.equal((await f.contract.getState()).meta.deployBlockNumber, 0)
+
+	await f.append(10)
+	await f.tick()
+	await f.client.sync()
+	await f.events.syncEventsUpToLatestBlock()
+	assert.equal((await f.contract.getState()).meta.deployBlockNumber, 3)
+	assert.equal(await f.client.getPayload(0), payloadHex(10))
+	assert.deepEqual((await f.events.getLeafRecords(2, 3)).map(event => event.blockNumber), [3])
+})

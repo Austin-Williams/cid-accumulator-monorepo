@@ -27,12 +27,13 @@ const MAX_SYNC_SNAPSHOT_REFRESHES = 3
 class CacheAheadOfSnapshotError extends Error {}
 
 /**
- * Manages getting all payload data for this account as efficiently as possible.
+ * Retrieves and verifies the configured consumer contract's accumulator data.
  * Uses the "CID-Walkback" method to look for payload data on IPFS, and will fully sync from
  * contract events (eventually) if it can't find anything on IPFS. It relies on the EventCacheService
  * to fetch LeafAppended events as needed.
  */
 export class DataClient {
+	/** The emitting consumer contract's address, used to identify its leaf records. */
 	public readonly account: EthereumAddress
 	public readonly storage: Storage
 	public readonly ipfsResolver: IpfsResolver
@@ -52,15 +53,10 @@ export class DataClient {
 
 	/**
 	 * @notice Creates a new DataClient instance
-	 * @param params Configuration parameters
-	 * @param params.account Ethereum address of the account
-	 * @param params.singletonContract Instance of AccumulatorContract for blockchain interaction
-	 * @param params.storage Storage adapter for persisting data
-	 * @param params.eventCoordinator EventCoordinator instance for Ethereum event caching
-	 * @param params.IpfsResolver IPFS adapter for content resolution
+	 * @param dependencies Services bound to the same accumulator contract and storage scope.
 	 */
-	constructor(account: EthereumAddress, dependencies: DataClientDependencies) {
-		this.account = account
+	constructor(dependencies: DataClientDependencies) {
+		this.account = dependencies.accumulatorContract.address
 		this.accumulatorContract = dependencies.accumulatorContract
 		this.storage = dependencies.storage
 		this.eventCacheService = dependencies.eventCacheService
@@ -88,7 +84,7 @@ export class DataClient {
 				try {
 					snapshot = await chain.snapshot()
 					this.activeSnapshot = snapshot
-					let state = await this.accumulatorContract.getState(this.account, { blockHash: snapshot.block.hash, requireCanonical: true })
+					let state = await this.accumulatorContract.getState({ blockHash: snapshot.block.hash, requireCanonical: true })
 					let snapshotRefreshes = 0
 					while (true) {
 						const { meta, peaks } = state
@@ -105,7 +101,7 @@ export class DataClient {
 						} catch (error) {
 							if (!(error instanceof CacheAheadOfSnapshotError)) throw error
 							const next = await chain.snapshot()
-							const latest = await this.accumulatorContract.getState(this.account, { blockHash: next.block.hash, requireCanonical: true })
+							const latest = await this.accumulatorContract.getState({ blockHash: next.block.hash, requireCanonical: true })
 							if (latest.meta.leafCount <= meta.leafCount) throw error
 							if (snapshotRefreshes++ >= MAX_SYNC_SNAPSHOT_REFRESHES) throw new Error(`[DataClient] Contract kept advancing during sync for ${this.account}; retry sync() to verify a fresh snapshot.`)
 							this.activeSnapshot = next
@@ -131,7 +127,7 @@ export class DataClient {
 	}
 
 	/** Attach before lifecycle services can recover or publish chain events.
-	 * @internal A resolved chain lets a manager attach a newly created client synchronously.
+	 * @internal A resolved chain lets lifecycle owners attach a client synchronously.
 	 */
 	public async connectChainNotifications(source?: ChainState): Promise<void> {
 		const generation = this.connectionGeneration
@@ -172,7 +168,7 @@ export class DataClient {
 
 	/**
 	 * @notice Handles a new leaf appended event for this account. Simply passes it along to any subscribers.
-	 * @dev Called by DataClientManager or LightClient when it learns about a new LeafAppended event
+	 * @dev Called by LightClient when it learns about a new LeafAppended event.
 	 * @param event The leaf record containing the new leaf data (includes payload)
 	 * @return A promise that resolves when the event has been processed
 	 */
@@ -493,7 +489,6 @@ export class DataClient {
 
 		// Get the event log for the latest leaf.
 		oldestLeafChecked.leafRecord = await this.eventCacheService.getLeafRecordForLeafIndexOrThrow(
-			this.account,
 			oldestLeafChecked.leafIndex,
 			oldestLeafChecked.insertionBlockNumber
 		)
@@ -561,7 +556,6 @@ export class DataClient {
 			// fetch the previous LeafAppended event
 			// Note that this also(via the event coordinator) ensures the payload for that leaf is available in the DB
 			infoForNextLoop.leafRecord = await this.eventCacheService.getLeafRecordForLeafIndexOrThrow(
-				this.account,
 				infoForNextLoop.leafIndex,
 				infoForNextLoop.insertionBlockNumber
 			)

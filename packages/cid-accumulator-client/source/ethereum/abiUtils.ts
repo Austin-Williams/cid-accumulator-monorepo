@@ -3,12 +3,12 @@ import { keccak_256 } from "@noble/hashes/sha3"
 import { CID } from "../ipfs/CID.js"
 import { contractPeakHexToMmrCid, hexStringToUint8Array } from "../utils/codec.js"
 import { EthereumAddress } from "./EthereumAddress.js"
+import { LEAF_APPENDED_EVENT_SIGNATURE } from "../utils/constants.js"
 
 import type { AccumulatorMetadata } from "../mmr/types.js"
 import type { DagCborEncodedData } from "../ipfs/types.js"
 import type {
 	NormalizedLeafAppendedEvent,
-	NormalizedNewAccountInitializedEvent,
 	RawEthLog,
 } from "./events.types.js"
 
@@ -78,8 +78,11 @@ export function parseAccumulatorMetaBits(mmrMetaBits: bigint): AccumulatorMetada
 }
 
 export async function parseLeafAppendedLog(log: RawEthLog): Promise<NormalizedLeafAppendedEvent> {
+	if (log.topics?.length !== 1 || log.topics[0]?.toLowerCase() !== getEventTopic(LEAF_APPENDED_EVENT_SIGNATURE)) {
+		throw new Error("Invalid LeafAppended event topic")
+	}
 	const data = log.data.startsWith("0x") ? log.data.slice(2) : log.data
-	if (data.length < 128 || data.length % 2 !== 0 || /[^0-9a-fA-F]/.test(data)) {
+	if (data.length < 256 || data.length % 2 !== 0 || /[^0-9a-fA-F]/.test(data)) {
 		throw new Error("Invalid LeafAppended ABI data")
 	}
 	const byteLength = BigInt(data.length / 2)
@@ -90,12 +93,11 @@ export async function parseLeafAppendedLog(log: RawEthLog): Promise<NormalizedLe
 	}
 	// Validate complete uint256 offsets and lengths before allocating decoded data.
 	const offset = readWord(32)
-	if (offset < 64n || offset % 32n !== 0n || offset > byteLength - 32n) {
+	if (offset !== 64n) {
 		throw new Error("Invalid LeafAppended ABI offset")
 	}
 	const combinedLen = readWord(Number(offset))
-	const paddedLen = ((combinedLen + 31n) / 32n) * 32n
-	if (offset + 32n + paddedLen > byteLength) {
+	if (offset + 32n + combinedLen !== byteLength) {
 		throw new Error("Invalid LeafAppended combined length")
 	}
 
@@ -105,13 +107,13 @@ export async function parseLeafAppendedLog(log: RawEthLog): Promise<NormalizedLe
 	for (let index = leafIndex; (index & 1n) !== 0n; index >>= 1n) mergeCount++
 	const mergeHashesLen = BigInt(mergeCount) * 32n
 	// Each merge consumes a peak; the contract's five-bit peak count is at most 31.
-	if (mergeCount > 31 || combinedLen < mergeHashesLen) {
+	if (mergeCount > 31 || combinedLen !== 32n + mergeHashesLen) {
 		throw new Error("Invalid LeafAppended merge hash count")
 	}
 
-	// Hashes occupy the tail; their count follows from the leaf index, so no separate length is needed.
+	// The fixed-size payload occupies the first word; the remaining words are consumed peaks.
 	const payloadStart = (Number(offset) + 32) * 2
-	const hashesStart = payloadStart + Number(combinedLen - mergeHashesLen) * 2
+	const hashesStart = payloadStart + 64
 	const payload = hexStringToUint8Array(data.slice(payloadStart, hashesStart))
 	const mergeLeftHashes: CID<unknown, 113, 27, 1>[] = []
 	for (let i = 0; i < mergeCount; i++) {
@@ -120,33 +122,11 @@ export async function parseLeafAppendedLog(log: RawEthLog): Promise<NormalizedLe
 	}
 
 	return {
-		// Account is the first indexed topic (topic[1])
-		account: EthereumAddress.fromString("0x" + log.topics[1].slice(26)),
+		account: EthereumAddress.fromString(log.address),
 		leafIndex: Number(leafIndex),
 		payload,
 		previousInsertBlockNumber: Number(metadata >> 32n),
 		mergeLeftHashes,
-		blockNumber: Number(log.blockNumber),
-		...(log.blockHash === undefined ? {} : { blockHash: log.blockHash.toLowerCase() }),
-	}
-}
-
-/**
- * Parse a NewAccountInitialized event log
- * @param log The raw Ethereum log
- * @returns A normalized NewAccountInitialized event
- */
-export function parseNewAccountInitializedLog(log: RawEthLog): NormalizedNewAccountInitializedEvent {
-	// For non-indexed parameters, we need to decode the data field
-	// The data field contains the 32-byte address padded to 32 bytes
-	const data = log.data.startsWith("0x") ? log.data.slice(2) : log.data
-
-	// Extract the address from the data (last 20 bytes of the 32-byte field)
-	// Skip the first 12 bytes (24 hex chars) of padding
-	const accountAddress = data.slice(24, 64)
-
-	return {
-		account: EthereumAddress.fromString("0x" + accountAddress),
 		blockNumber: Number(log.blockNumber),
 		...(log.blockHash === undefined ? {} : { blockHash: log.blockHash.toLowerCase() }),
 	}

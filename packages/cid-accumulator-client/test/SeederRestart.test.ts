@@ -6,7 +6,6 @@ import { setImmediate } from "node:timers/promises"
 import {
 	defaultIpfsPinnerConfig,
 	defaultSeederAccumulatorContractConfig,
-	defaultSeederAccountRegistryServiceConfig,
 	defaultSeederEventCacheServiceConfig,
 	defaultSeederIpfsResolverConfig,
 } from "../source/config/defaultConfig.js"
@@ -19,8 +18,7 @@ import { IpfsResolver } from "../source/ipfs/IpfsResolver.js"
 import type { CIDDataPair } from "../source/ipfs/types.js"
 import { MerkleMountainRange } from "../source/mmr/MerkleMountainRange.js"
 import type { MMRLeafAppendedTrail } from "../source/mmr/types.js"
-import { AccountRegistryService } from "../source/services/AccountRegistryService.js"
-import { DataClientManager } from "../source/services/DataClientManager.js"
+import { LightClient } from "../source/core/lightClient/LightClient.js"
 import { EventCacheService } from "../source/services/EventCacheService.js"
 import { PinningService } from "../source/services/PinningService.js"
 import { InMemoryAdapter } from "../source/storage/adapters/InMemoryAdapter.js"
@@ -66,31 +64,24 @@ function fixture(t: TestContext) {
 				peakCount: heights.length,
 				peakHeights: heights,
 				previousInsertBlockNumber: logs[logs.length - 1]?.blockNumber ?? 0,
-				deployBlockNumber: 1,
+				deployBlockNumber: logs[0]?.blockNumber ?? 0,
 			},
 			peaks: chain.peaks.map((cid, index) => ({ cid, height: heights[index] })),
 		}
 	}
 	const getState = t.mock.method(contract, "getState", async () => state())
-	t.mock.method(contract, "getSingletonBirthdayBlockNum", async () => 1)
 	t.mock.method(contract, "getBlockNumber", async () => head)
 	t.mock.method(contract, "getRootCID", () => chain.rootCID())
 	const getLogs = t.mock.method(contract, "getLeafAppendedLogs", async (from: number, to: number) =>
 		logs.filter((event) => event.blockNumber >= from && event.blockNumber <= to)
 	)
-	const registry = new AccountRegistryService(storage, contract, {
-		...defaultSeederAccountRegistryServiceConfig,
-		specificAccountsOnly: [account],
-	})
 	const events = new EventCacheService(storage, contract, {
 		...defaultSeederEventCacheServiceConfig,
 		pollingIntervalMs: 12345,
-		specificAccountsOnly: [account],
 	})
 	const resolver = new IpfsResolver(storage, defaultSeederIpfsResolverConfig)
 	t.mock.method(resolver, "fullyResolveCID", async () => undefined)
-	const manager = new DataClientManager(storage, contract, registry, events, resolver)
-	const client = manager.getOrCreateDataClient(account)
+	const client = new LightClient({ storage, accumulatorContract: contract, eventCacheService: events, ipfsResolver: resolver })
 	const subscriptions = t.mock.method(client, "subscribe")
 	const pinner = new IpfsPinner(storage, defaultIpfsPinnerConfig)
 	const pinned = new Set<string>()
@@ -98,13 +89,12 @@ function fixture(t: TestContext) {
 		assert.equal(pinAccount.toString(), account.toString())
 		pinned.add(pair.cid.toString())
 	})
-	const pinning = new PinningService(storage, contract, registry, manager, pinner, 67890)
+	const pinning = new PinningService(storage, contract, client, pinner, 67890)
 	const seeder = new Seeder({
 		storage,
 		accumulatorContract: contract,
 		eventCacheService: events,
-		accountRegistryService: registry,
-		dataClientManager: manager,
+		dataClient: client,
 		pinningService: pinning,
 	})
 	t.after(() => {
@@ -112,8 +102,7 @@ function fixture(t: TestContext) {
 			seeder.stop()
 		} finally {
 			events.stop()
-			registry.stop()
-			manager.stop()
+			client.stop()
 			pinning.stop()
 			resolver.stop()
 			contract.stop()
@@ -141,10 +130,10 @@ function fixture(t: TestContext) {
 		assert.ok(typeof callback === "function")
 		callback()
 		await waitFor(async () => (await storage.get("events:latestPolledBlock")) === String(head))
-		await waitFor(() => pinning.mmrs.get(account.toString())?.leafCount === chain.leafCount)
+		await waitFor(() => pinning.mmr.leafCount === chain.leafCount)
 	}
 	async function assertFullyPinned() {
-		const mmr = pinning.mmrs.get(account.toString())
+		const mmr = pinning.mmr
 		assert.ok(mmr)
 		assert.equal(mmr.leafCount, chain.leafCount)
 		assert.equal((await mmr.rootCID()).toString(), (await chain.rootCID()).toString())
@@ -156,7 +145,6 @@ function fixture(t: TestContext) {
 		seeder,
 		storage,
 		events,
-		manager,
 		client,
 		getState,
 		getLogs,
@@ -173,34 +161,23 @@ function fixture(t: TestContext) {
 describe("seeder restart catch-up", { concurrency: false, timeout: 5000 }, () => {
 	test("the seeder recovers startup, then catches up and pins downtime leaves on restart", async (t) => {
 		const f = fixture(t)
-		const initial = await f.append(Uint8Array.of(1))
-		const registry = f.seeder.dependencies.accountRegistryService
-		const startRegistry = registry.start.bind(registry)
-		const unsubscribe = t.mock.method(registry, "unsubscribe")
+		const initial = await f.append(new Uint8Array(32).fill(1))
+		const pinning = f.seeder.dependencies.pinningService
 		const forwarded = t.mock.method(f.client, "onLeafAppended")
-		const error = new Error("Registry startup interrupted")
-		t.mock.method(
-			registry,
-			"start",
-			async () => {
-				await startRegistry()
-				throw error
-			},
-			{ times: 1 }
-		)
+		const error = new Error("Pinning startup interrupted")
+		t.mock.method(pinning, "start", async () => { throw error }, { times: 1 })
 		await assert.rejects(f.seeder.start(), (caught) => caught === error)
 		assert.equal(f.seeder.running, false)
 		assert.equal(f.seeder.initialized, false)
-		assert.equal(unsubscribe.mock.callCount(), 1)
-		// The initialized manager must be detached even though its start was never reached.
+		const forwardedBefore = forwarded.mock.callCount()
 		await f.events.fetchAndStoreEventsForBlock(initial.blockNumber)
-		assert.equal(forwarded.mock.callCount(), 0)
+		assert.equal(forwarded.mock.callCount(), forwardedBefore)
 		await f.seeder.start()
-		await f.append(Uint8Array.of(2))
+		await f.append(new Uint8Array(32).fill(2))
 		await f.tick()
 		await f.assertFullyPinned()
 		f.seeder.stop()
-		const missed = await f.append(Uint8Array.of(3))
+		const missed = await f.append(new Uint8Array(32).fill(3))
 		const stateCalls = f.getState.mock.callCount()
 		await f.seeder.start()
 		await f.assertFullyPinned()
@@ -213,23 +190,23 @@ describe("seeder restart catch-up", { concurrency: false, timeout: 5000 }, () =>
 
 	test("stopping before the first poll still leaves a saved baseline for restart", async (t) => {
 		const f = fixture(t)
-		const initial = await f.append(Uint8Array.of(1))
+		const initial = await f.append(new Uint8Array(32).fill(1))
 		await f.seeder.start()
 		assert.equal(await f.storage.get("events:latestPolledBlock"), String(initial.blockNumber))
 		f.seeder.stop()
-		const missed = await f.append(Uint8Array.of(2))
+		const missed = await f.append(new Uint8Array(32).fill(2))
 		await f.seeder.start()
 		await f.assertFullyPinned()
 		assert.equal(await f.storage.get("events:latestPolledBlock"), String(missed.blockNumber))
 	})
 
-	test("retained clients resync a legacy cache with no polling cursor", async (t) => {
+	test("a retained client resyncs cached data when its polling cursor is absent", async (t) => {
 		const f = fixture(t)
-		await f.append(Uint8Array.of(1))
+		await f.append(new Uint8Array(32).fill(1))
 		await f.seeder.start()
 		f.seeder.stop()
 		await f.storage.delete("events:latestPolledBlock")
-		await f.append(Uint8Array.of(2))
+		await f.append(new Uint8Array(32).fill(2))
 		const stateCalls = f.getState.mock.callCount()
 		await f.seeder.start()
 		await f.assertFullyPinned()
@@ -238,7 +215,7 @@ describe("seeder restart catch-up", { concurrency: false, timeout: 5000 }, () =>
 
 	test("repeated start calls do not resync or duplicate subscriptions and pin attempts", async (t) => {
 		const f = fixture(t)
-		await f.append(Uint8Array.of(1))
+		await f.append(new Uint8Array(32).fill(1))
 		await f.seeder.start()
 		const stateCalls = f.getState.mock.callCount()
 		const intervalCalls = f.intervals.mock.callCount()
@@ -248,7 +225,7 @@ describe("seeder restart catch-up", { concurrency: false, timeout: 5000 }, () =>
 		assert.equal(f.intervals.mock.callCount(), intervalCalls)
 		assert.equal(f.pins.mock.callCount(), pinCalls)
 		assert.equal(f.subscriptions.mock.callCount(), 1)
-		await f.append(Uint8Array.of(2))
+		await f.append(new Uint8Array(32).fill(2))
 		await f.tick()
 		await f.assertFullyPinned()
 		assert.equal(f.subscriptions.mock.callCount(), 1)
@@ -256,13 +233,13 @@ describe("seeder restart catch-up", { concurrency: false, timeout: 5000 }, () =>
 
 	test("already cached downtime events are not notified again during restart catch-up", async (t) => {
 		const f = fixture(t)
-		await f.append(Uint8Array.of(1))
+		await f.append(new Uint8Array(32).fill(1))
 		await f.seeder.start()
 		f.seeder.stop()
 		const observed: number[] = []
 		const unsubscribe = f.events.subscribe((event) => observed.push(event.leafIndex))
 		t.after(unsubscribe)
-		const missed = await f.append(Uint8Array.of(2))
+		const missed = await f.append(new Uint8Array(32).fill(2))
 		await f.events.fetchAndStoreEventsForBlock(missed.blockNumber)
 		assert.deepEqual(observed, [1])
 		await f.seeder.start()
@@ -272,7 +249,7 @@ describe("seeder restart catch-up", { concurrency: false, timeout: 5000 }, () =>
 
 	test("an older in-flight sync finishes before restart requests a fresh snapshot", async (t) => {
 		const f = fixture(t)
-		await f.append(Uint8Array.of(1))
+		await f.append(new Uint8Array(32).fill(1))
 		await f.seeder.start()
 		const captured = deferred()
 		const release = deferred()
@@ -285,18 +262,18 @@ describe("seeder restart catch-up", { concurrency: false, timeout: 5000 }, () =>
 		const oldSync = f.client.sync()
 		await captured.promise
 		f.seeder.stop()
-		// A legacy cursor isolates retained-client refresh from event-poll catch-up.
+		// An absent cursor isolates retained-client refresh from event-poll catch-up.
 		await f.storage.delete("events:latestPolledBlock")
-		await f.append(Uint8Array.of(2))
-		const managerEntered = deferred()
-		const startManager = f.manager.start.bind(f.manager)
-		t.mock.method(f.manager, "start", async () => {
-			managerEntered.resolve()
-			return startManager()
+		await f.append(new Uint8Array(32).fill(2))
+		const clientEntered = deferred()
+		const startClient = f.client.start.bind(f.client)
+		t.mock.method(f.client, "start", async () => {
+			clientEntered.resolve()
+			return startClient()
 		})
 		const restarting = f.seeder.start()
 		try {
-			await managerEntered.promise
+			await clientEntered.promise
 		} finally {
 			release.resolve()
 		}

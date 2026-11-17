@@ -218,9 +218,8 @@ describe("complete IPFS tree resolution", { concurrency: false, timeout: 5000 },
 		const f = await fixture(t)
 		await f.cache([f.root])
 		const account = new EthereumAddress("0x" + "11".repeat(20))
-		const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
+		const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: account })
 		mockChain(t, contract, f.storage)
-		t.mock.method(contract, "getSingletonBirthdayBlockNum", async () => 1)
 		t.mock.method(contract, "getState", async () => ({
 			meta: { leafCount: 3, peakCount: 2, peakHeights: [1, 0], previousInsertBlockNumber: 3, deployBlockNumber: 1 },
 			peaks: [
@@ -240,7 +239,7 @@ describe("complete IPFS tree resolution", { concurrency: false, timeout: 5000 },
 			events.filter((event) => event.blockNumber >= from && event.blockNumber <= to)
 		)
 		const eventCacheService = new EventCacheService(f.storage, contract, defaultLightClientEventCacheServiceConfig)
-		const client = new DataClient(account, {
+		const client = new DataClient({
 			storage: f.storage,
 			accumulatorContract: contract,
 			eventCacheService,

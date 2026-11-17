@@ -4,6 +4,8 @@ import { defaultLightClientConfig } from "../source/config/defaultConfig.js"
 import { createLightClient } from "../source/core/lightClient/createLightClient.js"
 import { createSeeder } from "../source/core/seeder/createSeeder.js"
 import { EthereumAddress } from "../source/ethereum/EthereumAddress.js"
+import { AbiCoder } from "ethers"
+import { getSelector } from "../source/ethereum/abiUtils.js"
 import { mergeConfigWithDefaults } from "../source/utils/mergeConfigs.js"
 
 describe("configuration merging", () => {
@@ -86,10 +88,11 @@ describe("factory address configuration", { concurrency: false, timeout: 5000 },
 			test(`${factory} sends contract calls to the configured ${addressFormat} address`, async (t) => {
 				t.mock.method(console, "log", () => {})
 				const fetch = t.mock.method(globalThis, "fetch", async () =>
-					Response.json({ jsonrpc: "2.0", id: 1, result: "0x7b" })
+					Response.json({ jsonrpc: "2.0", id: 1, result: AbiCoder.defaultAbiCoder().encode(
+						["uint256", "bytes32[32]"], [123n << 229n, Array(32).fill("0x" + "00".repeat(32))]
+					) })
 				)
 				const address = new EthereumAddress("0x" + "AB".repeat(20))
-				const account = new EthereumAddress("0x" + "CD".repeat(20))
 				const ethereumHttpRpcUrl = "https://ethereum.example.test"
 				const config = {
 					accumulatorContractConfig: {
@@ -102,16 +105,17 @@ describe("factory address configuration", { concurrency: false, timeout: 5000 },
 				// Leave services and storage unopened; exercise only contract calls through the mock RPC.
 				const contract =
 					factory === "light client"
-						? (await createLightClient(account, config)).accumulatorContract
+						? (await createLightClient(config)).accumulatorContract
 						: (await createSeeder(config)).dependencies.accumulatorContract
 				t.after(() => contract.stop())
 				assert.equal(fetch.mock.callCount(), 0)
-				assert.equal(await contract.getSingletonBirthdayBlockNum(), 123)
+				assert.equal((await contract.getState()).meta.deployBlockNumber, 123)
 				assert.equal(fetch.mock.callCount(), 1)
 				const [url, init] = fetch.mock.calls[0].arguments
 				assert.equal(url, ethereumHttpRpcUrl)
 				const request = JSON.parse(String(init?.body))
 				assert.equal(request.method, "eth_call")
+				assert.equal(request.params[0].data, getSelector("getState()"))
 				assert.equal(
 					request.params[0].to,
 					address.toString()

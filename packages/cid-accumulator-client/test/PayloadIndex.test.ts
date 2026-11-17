@@ -19,11 +19,11 @@ import { encodeBlock, hexStringToUint8Array } from "../source/utils/codec.js"
 function fixture(t: TestContext) {
 	const account = new EthereumAddress("0x" + "ab".repeat(20))
 	const storage = new InMemoryAdapter()
-	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
+	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: account })
 	mockChain(t, contract, storage)
 	const events = new EventCacheService(storage, contract, defaultLightClientEventCacheServiceConfig)
 	const resolver = new IpfsResolver(storage, defaultLightClientIpfsResolverConfig)
-	const client = new DataClient(account, {
+	const client = new DataClient({
 		storage,
 		accumulatorContract: contract,
 		eventCacheService: events,

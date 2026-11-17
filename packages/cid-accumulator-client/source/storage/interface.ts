@@ -8,28 +8,23 @@ export interface StorageConfig {
 }
 
 /**
- * DB Schema for CID Accumulator Singleton
+ * DB schema within one chain-ID/consumer-contract scope.
+ * AccumulatorStorageAdapter prefixes the keys below and gives each scope its own coordination identity.
  *	IpfsPinner storage:
  * - "ipfs:remote-pinned:service:{serviceName}:cid:{cidString}" - boolean indicating whether the CID has been remote pinned at the service
  *
  * IpfsResolver storage:
  * - "ipfs:block:{cidString}" - dagCborEncodedData
  *
- * AccountRegistry storage:
- * - "account-registry:singletonBirthdayBlock" - blockNumber
- * - "account-registry:lastProcessedBlock" - blockNumber
- * - "account-registry:account:{index}" - accountAddress
- *
  * EventCacheService storage:
- * - "events:block:{blockNumber}" - informational JSON array of accounts in the latest fetch; not proof of coverage
- * - "events:complete:block:{blockNumber}" - "true" after an unfiltered fetch completes
- * - "events:account:{account}:block:{blockNumber}" - complete JSON array of leaf indices for this account, including []
+ * - "events:latestPolledBlock" - latest fully processed polling block
+ * - "events:account:{account}:block:{blockNumber}" - complete JSON array of leaf indices for this consumer, including []
  *
  * Shared leaf data storage (populated via on-chain events, IPFS downloads, CID-walkbacks, MMRs, etc):
  * Invalidate shared leaf data only through coordinated chain rollback.
  *
  * "account:{address}:leaf:{leafIndex}": { // LeafRecord
- *   account: EthereumAddress,           // the account address
+ *   account: EthereumAddress,           // the emitting consumer contract's address
  *   leafIndex: number,                  // the leaf index
  *   payload: Uint8Array,                // the raw payload
  *   payloadCID?: CID<unknown, 113, 27, 1>, // CID<unknown, 113, 27, 1>.toString(), the CID of the payload itself, not the root CID,

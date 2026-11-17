@@ -108,9 +108,8 @@ describe("historical CID reconstruction", { concurrency: false, timeout: 5000 },
 			})
 			const resolve = t.mock.method(resolver, "fullyResolveCID")
 			const account = new EthereumAddress("0x" + "11".repeat(20))
-			const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
+			const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: account })
 			mockChain(t, contract, storage)
-			t.mock.method(contract, "getSingletonBirthdayBlockNum", async () => 1)
 			t.mock.method(contract, "getState", async () => ({
 				meta: {
 					leafCount,
@@ -134,7 +133,7 @@ describe("historical CID reconstruction", { concurrency: false, timeout: 5000 },
 				return events.filter((event) => event.blockNumber >= from && event.blockNumber <= to)
 			})
 			const eventCacheService = new EventCacheService(storage, contract, defaultLightClientEventCacheServiceConfig)
-			const client = new DataClient(account, {
+			const client = new DataClient({
 				storage,
 				accumulatorContract: contract,
 				eventCacheService,

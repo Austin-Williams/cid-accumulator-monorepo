@@ -8,6 +8,7 @@ import { setImmediate } from "node:timers/promises"
 import { createLightClient } from "../source/core/lightClient/createLightClient.js"
 import { JSMapAdapter } from "../source/storage/adapters/JSMapAdapter.js"
 import { putLeafRecordInDB } from "../source/storage/utils.js"
+import { blockHeader } from "./mockChain.js"
 
 async function fixture(t: TestContext) {
 	const directory = await fs.mkdtemp(join(tmpdir(), "cid-shared-storage-"))
@@ -24,31 +25,75 @@ function deferred() {
 }
 
 describe("shared JSON database storage", { concurrency: false, timeout: 10000 }, () => {
-	test("two light clients preserve both accounts' records in the shared file", async (t) => {
+	test("consumer contracts and chain IDs have isolated caches while providers for the same chain share updates", async (t) => {
 		const { filePath } = await fixture(t)
-		const first = await createLightClient("0x" + "11".repeat(20), { nodeDbPath: filePath, accumulatorContractConfig: { accumulatorContractAddress: "0x" + "ab".repeat(20) } })
-		const second = await createLightClient("0x" + "22".repeat(20), { nodeDbPath: filePath, accumulatorContractConfig: { accumulatorContractAddress: "0x" + "ab".repeat(20) } })
-		// Only open storage; contract and polling services remain stopped.
-		await Promise.all([first.storage.init(), second.storage.init()])
-		await Promise.all(
-			[first, second].map((client, index) =>
-				putLeafRecordInDB(client.storage, client.account, 0, {
-					account: client.account,
-					leafIndex: 0,
-					payload: Uint8Array.of(index + 1),
-				})
-			)
-		)
-		await Promise.all([first.storage.close(), second.storage.close()])
-		const saved = JSON.parse(await fs.readFile(filePath, "utf8"))
-		for (const [index, client] of [first, second].entries()) {
-			const prefix = `account:${client.account}:leaf:0`
-			assert.equal(saved[`${prefix}:account`], client.account.toString())
-			assert.equal(saved[`${prefix}:leafindex`], "0")
-			assert.equal(saved[`${prefix}:payload`], index === 0 ? "01" : "02")
-			assert.equal(await client.getPayload(0), index === 0 ? "01" : "02")
+		const configs = [
+			{ accumulatorContractAddress: "0x" + "11".repeat(20), ethereumHttpRpcUrl: "https://first.example.test" },
+			{ accumulatorContractAddress: "0x" + "22".repeat(20), ethereumHttpRpcUrl: "https://first.example.test" },
+			{ accumulatorContractAddress: "0x" + "11".repeat(20), ethereumHttpRpcUrl: "https://first.example.test" },
+		]
+		const clients = await Promise.all(configs.map(accumulatorContractConfig =>
+			createLightClient({ nodeDbPath: filePath, accumulatorContractConfig })
+		))
+		for (const [index, client] of clients.entries()) {
+			t.mock.method(client.accumulatorContract, "getChainId", async () => index === 2 ? 2n : 1n)
 		}
-		assert.equal(Object.keys(saved).length, 6)
+		await Promise.all(clients.map(client => client.storage.init()))
+		await Promise.all(clients.map(async (client, index) => {
+			await putLeafRecordInDB(client.storage, client.account, 0, {
+				account: client.account, leafIndex: 0, payload: new Uint8Array(32).fill(index + 1),
+			})
+			await client.storage.put("chain:head", `head-${index}`)
+		}))
+		await Promise.all(clients.map(client => client.storage.close()))
+		for (const [index, client] of clients.entries()) {
+			assert.equal(await client.getPayload(0), (index + 1).toString(16).padStart(2, "0").repeat(32))
+			assert.equal(await client.storage.get("chain:head"), `head-${index}`)
+			assert.deepEqual(await Array.fromAsync(client.storage.iterate("chain:")), [{ key: "chain:head", value: `head-${index}` }])
+		}
+		const peer = await createLightClient({ nodeDbPath: filePath, accumulatorContractConfig: {
+			...configs[0], ethereumHttpRpcUrl: "https://another-provider.example.test",
+		} })
+		t.mock.method(peer.accumulatorContract, "getChainId", async () => 1n)
+		assert.equal(await peer.getPayload(0), "01".repeat(32))
+		assert.equal(await peer.storage.getIdentity!(), await clients[0].storage.getIdentity!())
+		assert.notEqual(await clients[0].storage.getIdentity!(), await clients[1].storage.getIdentity!())
+		assert.notEqual(await clients[0].storage.getIdentity!(), await clients[2].storage.getIdentity!())
+		await peer.storage.delete("chain:head")
+		assert.equal(await clients[0].storage.get("chain:head"), undefined)
+		assert.equal(await clients[1].storage.get("chain:head"), "head-1")
+		assert.equal(Object.keys(JSON.parse(await fs.readFile(filePath, "utf8"))).length, 11)
+
+		// Recovery uses the active peer's provider while notifying every client in the shared scope.
+		const firstChain = await clients[0].chain
+		const peerChain = await peer.chain
+		const resets = [0, 0]
+		const rollbacks: number[][] = [[], []]
+		for (const [index, chain] of [firstChain, peerChain].entries()) {
+			t.after(chain.subscribeReset(() => { resets[index]++ }))
+			t.after(chain.subscribeRollback(event => { rollbacks[index].push(event.firstInvalidLeafIndex) }))
+		}
+		await peer.storage.put("chain:head", JSON.stringify(blockHeader(1)))
+		await peer.storage.put("chain:finalized", JSON.stringify(blockHeader(0)))
+		await peer.storage.put("chain:block:0", JSON.stringify(blockHeader(0)))
+		await peer.storage.put("chain:block:1", JSON.stringify(blockHeader(1)))
+		await peerChain.trackAccount(peer.account, 1, 1)
+		clients[0].storage.stop()
+		clients[0].accumulatorContract.stop()
+		t.mock.method(clients[0].accumulatorContract, "getChainId", async () => { throw new Error("First provider stopped") })
+		t.mock.method(clients[0].accumulatorContract, "getBlock", async () => { throw new Error("First provider stopped") })
+		t.mock.method(peer.accumulatorContract, "getBlock", async () => blockHeader(0))
+		t.mock.method(peer.accumulatorContract, "getState", async () => ({
+			meta: { leafCount: 0, peakCount: 0, peakHeights: [], previousInsertBlockNumber: 0, deployBlockNumber: 0 },
+			peaks: [],
+		}))
+		const snapshot = await peerChain.snapshot()
+		assert.deepEqual(snapshot.block, blockHeader(0))
+		assert.equal(firstChain.generation, snapshot.generation)
+		assert.deepEqual(resets, [2, 2])
+		assert.deepEqual(rollbacks, [[0], [0]])
+		assert.equal(await peer.getPayload(0), undefined)
+		assert.equal(await clients[1].getPayload(0), "02".repeat(32))
 	})
 
 	test("relative, absolute, and dot-segment paths share updates and deletions", async (t) => {

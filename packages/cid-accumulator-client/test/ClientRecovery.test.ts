@@ -44,15 +44,14 @@ function fixture(t: TestContext, storage: Storage = new InMemoryAdapter()) {
 	t.mock.method(console, "warn", () => {})
 	t.mock.method(console, "error", () => {})
 	const account = new EthereumAddress("0x" + "11".repeat(20))
-	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: "0x" + "ab".repeat(20) })
+	const contract = new AccumulatorContract({ ...defaultLightClientAccumulatorContractConfig, accumulatorContractAddress: account })
 	mockChain(t, contract, storage)
 	const eventCache = new EventCacheService(storage, contract, defaultLightClientEventCacheServiceConfig)
 	const resolver = new IpfsResolver(storage, defaultLightClientIpfsResolverConfig)
 	let stateProvider: () => Promise<State> = async () => emptyState()
 	const getState = t.mock.method(contract, "getState", () => stateProvider())
-	const getBirthday = t.mock.method(contract, "getSingletonBirthdayBlockNum", async () => 1)
 	const getBlock = t.mock.method(contract, "getBlockNumber", async () => 1)
-	const client = new LightClient(account, {
+	const client = new LightClient({
 		storage,
 		accumulatorContract: contract,
 		eventCacheService: eventCache,
@@ -86,7 +85,6 @@ function fixture(t: TestContext, storage: Storage = new InMemoryAdapter()) {
 		eventCache,
 		resolver,
 		getState,
-		getBirthday,
 		getBlock,
 		stops,
 		setStateProvider: (provider: () => Promise<State>) => {
@@ -138,18 +136,17 @@ describe("client failure recovery", { concurrency: false, timeout: 5000 }, () =>
 	}
 
 	test("failed initialization cleans up only initialized services and allows retry", async (t) => {
-		const { client, getBirthday, stops } = fixture(t)
-		const error = new Error("Could not read the deployment block")
-		getBirthday.mock.mockImplementationOnce(async () => {
+		const { client, eventCache, stops } = fixture(t)
+		const error = new Error("Could not initialize event storage")
+		t.mock.method(eventCache, "init", async () => {
 			throw error
-		})
+		}, { times: 1 })
 		await assert.rejects(client.start(), (caught) => caught === error)
 		assert.deepEqual(stops, ["contract", "storage"])
 		assert.equal(client.running, false)
 		assert.equal(client.initialized, false)
 
 		await client.start()
-		assert.equal(getBirthday.mock.callCount(), 2)
 		assert.equal(client.running, true)
 		assert.equal(client.completedInitialSync, true)
 	})

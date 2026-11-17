@@ -5,192 +5,48 @@ export const NULL_CID: CID<unknown, 113, 27, 1> = CID.parse(
 	"bafyrwie3cmps4ofjp7zlyrzxhydka74mcppswcpj76ox7kfqhfxtfftfti"
 )
 
-export const CIDAccumulatorSingletonABI = [
-	{
-		inputs: [
-			{
-				internalType: "bytes",
-				name: "payload",
-				type: "bytes",
-			},
-		],
-		name: "appendLeaf",
-		outputs: [],
-		stateMutability: "nonpayable",
-		type: "function",
-	},
-	{
-		inputs: [
-			{
-				internalType: "bytes[]",
-				name: "payloadArr",
-				type: "bytes[]",
-			},
-		],
-		name: "appendLeaves",
-		outputs: [],
-		stateMutability: "nonpayable",
-		type: "function",
-	},
-	{
-		inputs: [],
-		stateMutability: "nonpayable",
-		type: "constructor",
-	},
-	{
-		inputs: [
-			{
-				internalType: "uint256",
-				name: "len",
-				type: "uint256",
-			},
-		],
-		name: "CBORLengthOverflow",
-		type: "error",
-	},
-	{
-		inputs: [
-			{
-				internalType: "uint256",
-				name: "actualSize",
-				type: "uint256",
-			},
-		],
-		name: "DataBlockTooLargeForIPFS",
-		type: "error",
-	},
+// Read-only ABI inherited by each consuming application; appends use the application's own API.
+export const CIDAccumulatorABI = [
 	{
 		anonymous: false,
 		inputs: [
-			{
-				indexed: true,
-				internalType: "address",
-				name: "account",
-				type: "address",
-			},
-			{
-				indexed: false,
-				internalType: "uint64",
-				name: "metadata",
-				type: "uint64",
-			},
-			{
-				indexed: false,
-				internalType: "bytes",
-				name: "payloadAndMergeHashes",
-				type: "bytes",
-			},
+			{ indexed: false, internalType: "uint64", name: "metadata", type: "uint64" },
+			{ indexed: false, internalType: "bytes", name: "payloadAndMergeHashes", type: "bytes" },
 		],
 		name: "LeafAppended",
 		type: "event",
 	},
 	{
-		anonymous: false,
-		inputs: [
-			{
-				indexed: false,
-				internalType: "address",
-				name: "account",
-				type: "address",
-			},
-		],
-		name: "NewAccountInitialized",
-		type: "event",
-	},
-	{
-		inputs: [
-			{
-				internalType: "address",
-				name: "account",
-				type: "address",
-			},
-		],
+		inputs: [],
 		name: "getMMRMetaBits",
-		outputs: [
-			{
-				internalType: "uint256",
-				name: "",
-				type: "uint256",
-			},
-		],
-		stateMutability: "view",
-		type: "function",
-	},
-	{
-		inputs: [
-			{
-				internalType: "address",
-				name: "account",
-				type: "address",
-			},
-		],
-		name: "getRootCID",
-		outputs: [
-			{
-				internalType: "bytes",
-				name: "rawCIDv1",
-				type: "bytes",
-			},
-		],
-		stateMutability: "view",
-		type: "function",
-	},
-	{
-		inputs: [
-			{
-				internalType: "address",
-				name: "account",
-				type: "address",
-			},
-		],
-		name: "getRootCIDString",
-		outputs: [
-			{
-				internalType: "string",
-				name: "",
-				type: "string",
-			},
-		],
-		stateMutability: "view",
-		type: "function",
-	},
-	{
-		inputs: [
-			{
-				internalType: "address",
-				name: "account",
-				type: "address",
-			},
-		],
-		name: "getState",
-		outputs: [
-			{
-				internalType: "uint256",
-				name: "",
-				type: "uint256",
-			},
-			{
-				internalType: "bytes32[32]",
-				name: "",
-				type: "bytes32[32]",
-			},
-		],
+		outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
 		stateMutability: "view",
 		type: "function",
 	},
 	{
 		inputs: [],
-		name: "SINGLETON_BIRTHDAY_BLOCK_NUM",
+		name: "getRootCID",
+		outputs: [{ internalType: "bytes", name: "", type: "bytes" }],
+		stateMutability: "view",
+		type: "function",
+	},
+	{
+		inputs: [],
+		name: "getRootCIDString",
+		outputs: [{ internalType: "string", name: "", type: "string" }],
+		stateMutability: "view",
+		type: "function",
+	},
+	{
+		inputs: [],
+		name: "getState",
 		outputs: [
-			{
-				internalType: "uint256",
-				name: "",
-				type: "uint256",
-			},
+			{ internalType: "uint256", name: "", type: "uint256" },
+			{ internalType: "bytes32[32]", name: "", type: "bytes32[32]" },
 		],
 		stateMutability: "view",
 		type: "function",
 	},
 ]
 
-export const LEAF_APPENDED_EVENT_SIGNATURE = "LeafAppended(address,uint64,bytes)"
+export const LEAF_APPENDED_EVENT_SIGNATURE = "LeafAppended(uint64,bytes)"
