@@ -73,11 +73,9 @@ Most data inserts require between 12.9k and 16.6k gas. See below for more about 
 
 ## How the off-chain component works
 
-To get the root CID for your contract's data, call its `getRootCIDString() external view returns (string memory)` function (for the base32-encoded CID string). You can also compute the CID locally from the metadata and active peaks returned by `getState()`.
+To get the root CID for your contract's data, call its `getRootCIDString()` function (for the base32-encoded CID string).
 
-For an empty accumulator, the root is the CID of the DAG-CBOR null block.
-
-Then use that root CID to download the data from your IPFS HTTP gateway. For example, with Kubo running locally: `http://127.0.0.1:8080/ipfs/<rootCID>?format=car`.
+Then use that root CID to download the data from your IPFS gateway. For example, `https://inbrowser.link/ipfs/<rootCID>` or `http://127.0.0.1:8080/ipfs/<rootCID>?format=car`.
 
 To open a CID manually in a browser, use `https://inbrowser.link/ipfs/<rootCID>`. This gateway retrieves content through a browser service worker; programmatic clients need a local or hosted HTTP gateway.
 
