@@ -6,7 +6,6 @@ import {DagCborDigestLib} from "./libraries/DagCborDigestLib.sol";
 import {MetaBitsLib} from "./libraries/MetaBitsLib.sol";
 import {MmrLib} from "./libraries/MmrLib.sol";
 import {CidLib} from "./libraries/CidLib.sol";
-import {StorageLayoutLib} from "./libraries/StorageLayoutLib.sol";
 
 /// @title CIDAccumulator
 /// @notice An append-only CID accumulator owned by the inheriting contract.
@@ -16,37 +15,56 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 	using MmrLib for uint256;
 	using CidLib for bytes32;
 
-	StorageLayoutLib.Layout private _state;
+	/// @custom:storage-location erc7201:cid-accumulator.storage.CIDAccumulator
+	/// @dev Keep the namespace and existing field order/types unchanged across upgrades.
+	struct CIDAccumulatorStorage {
+		uint256 mmrMetaBits;
+		bytes32[32] peaks;
+	}
+
+	// keccak256(abi.encode(uint256(keccak256("cid-accumulator.storage.CIDAccumulator")) - 1)) & ~bytes32(uint256(0xff))
+	bytes32 private constant CID_ACCUMULATOR_STORAGE_LOCATION =
+		0x0c1447a2674fa729fff3d504370bf94b14acba58744e095eba37231c62d2ad00;
+
+	function _getAccumulatorStorage() private pure returns (CIDAccumulatorStorage storage state) {
+		assembly ("memory-safe") {
+			state.slot := CID_ACCUMULATOR_STORAGE_LOCATION
+		}
+	}
 
 	/// @inheritdoc ICIDAccumulator
 	function getState() external view override returns (uint256, bytes32[32] memory) {
-		return (_state.mmrMetaBits, _state.peaks);
+		CIDAccumulatorStorage storage state = _getAccumulatorStorage();
+		return (state.mmrMetaBits, state.peaks);
 	}
 
 	/// @inheritdoc ICIDAccumulator
 	function getRootCID() external view override returns (bytes memory) {
-		bytes32 root = MmrLib.bagPeaks(_state.mmrMetaBits.getPeakCount(), _state.peaks);
+		CIDAccumulatorStorage storage state = _getAccumulatorStorage();
+		bytes32 root = MmrLib.bagPeaks(state.mmrMetaBits.getPeakCount(), state.peaks);
 		return root.encodeCid();
 	}
 
 	/// @inheritdoc ICIDAccumulator
 	function getRootCIDString() external view override returns (string memory) {
-		bytes32 root = MmrLib.bagPeaks(_state.mmrMetaBits.getPeakCount(), _state.peaks);
+		CIDAccumulatorStorage storage state = _getAccumulatorStorage();
+		bytes32 root = MmrLib.bagPeaks(state.mmrMetaBits.getPeakCount(), state.peaks);
 		return root.encodeCidString();
 	}
 
 	/// @inheritdoc ICIDAccumulator
 	function getMMRMetaBits() external view override returns (uint256) {
-		return _state.mmrMetaBits;
+		return _getAccumulatorStorage().mmrMetaBits;
 	}
 
 	/// @notice Appends one 32-byte payload to this contract's accumulator.
 	/// @dev The payload is encoded as a DAG-CBOR byte string before hashing; it is not a leaf digest.
 	/// All callers of the application contribute to the same accumulator.
 	function _appendLeaf(bytes32 payload) internal {
-		uint256 packedBits = _state.mmrMetaBits;
+		CIDAccumulatorStorage storage state = _getAccumulatorStorage();
+		uint256 packedBits = state.mmrMetaBits;
 		uint256 currentBlock = block.number;
-		bytes32[32] storage peaks = _state.peaks;
+		bytes32[32] storage peaks = state.peaks;
 		uint256 peakCount = packedBits.getPeakCount();
 		uint256 numMerges = packedBits.getLeafCount().mergeCount();
 		bytes32[] memory mergeLeftHashes = new bytes32[](numMerges);
@@ -63,7 +81,7 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 		// Only the resulting peak is written; consumed slots remain available for reuse.
 		peaks[peakCount] = carryHash;
 		_emitLeafAppended(packedBits, payload, mergeLeftHashes);
-		_state.mmrMetaBits = packedBits.updateMetaBits(peakCount, numMerges, currentBlock);
+		state.mmrMetaBits = packedBits.updateMetaBits(peakCount, numMerges, currentBlock);
 	}
 
 	/// @dev Emits the standard ABI encoding using temporary memory; no buffer escapes.

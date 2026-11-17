@@ -55,6 +55,8 @@ contract YourContract is CIDAccumulator {
 }
 ```
 
+Accumulator state lives in the [ERC-7201](https://eips.ethereum.org/EIPS/eip-7201) namespace `cid-accumulator.storage.CIDAccumulator`, separate from your contract's ordinary storage slots. Keep the namespace and existing field order/types unchanged across upgrades.
+
 The [CIDAccumulator contract](contracts/CIDAccumulator.sol) maintains an append-only CID accumulator. Each call to `_appendLeaf` causes your contract to emit an event:
 
 ```solidity
@@ -382,7 +384,7 @@ Measured with Solidity 0.8.38, optimizer 200 runs, Osaka, using `ExampleApplicat
 | 4           | Merge with 4 peaks → height 4    | ≈ 22.3k gas    |
 | 5           | Merge with 5 peaks → height 5    | ≈ 25.2k gas    |
 | 6           | Merge with 6 peaks → height 6    | ≈ 28.1k gas    |
-| 7           | Merge with 7 peaks → height 7    | ≈ 31.0k gas    |
+| 7           | Merge with 7 peaks → height 7    | ≈ 30.9k gas    |
 | 8           | Merge with 8 peaks → height 8    | ≈ 33.8k gas    |
 | 9           | Merge with 9 peaks → height 9    | ≈ 36.7k gas    |
 | 10          | Merge with 10 peaks → height 10  | ≈ 39.6k gas    |
@@ -405,7 +407,7 @@ For example, if you insert `2^20` entries (just over 1 million), here’s how of
 | 4           | 3.125%      | ≈ 22 .3 k      |
 | 5           | 1.5625%     | ≈ 25 .2 k      |
 | 6           | 0.78125%    | ≈ 28 .1 k      |
-| 7           | 0.390625%   | ≈ 31 .0 k      |
+| 7           | 0.390625%   | ≈ 30 .9 k      |
 | 8           | 0.1953125%  | ≈ 33 .8 k      |
 | 9           | 0.09765625% | ≈ 36 .7 k      |
 | 10          | 0.048828125%| ≈ 39 .6 k      |
@@ -415,7 +417,7 @@ For example, if you insert `2^20` entries (just over 1 million), here’s how of
 
 So the steady-state gas cost is determined only by that insert’s merge activity — **not** by the total size of the data set.
 
-The mean steady-state cost per insert is ≈ 14.8k gas.
+The mean steady-state cost per insert is ≈ 14.7k gas.
 
 Note: The very first time your contract appends data to the accumulator, the execution cost is about 47.2k gas because two empty storage slots need to be unzeroed when initializing the contract's accumulator. Later inserts that use a previously untouched peak slot cost about 17.1k gas more than the table above.
 
