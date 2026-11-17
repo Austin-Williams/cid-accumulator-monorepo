@@ -17,9 +17,6 @@ It requires no trusted third parties or centralized services from start to finis
 - [The Seeder](#the-seeder)
 - [Gas Costs](#gas-costs)
 - [How the CID is computed by the smart contract (for nerds)](#how-the-cid-is-computed-by-the-smart-contract-for-nerds)
-- [Looking for a Maintainer](#looking-for-a-maintainer)
-- [Contract address](#contract-address)
-
 
 ## Why we need it
 
