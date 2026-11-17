@@ -55,9 +55,9 @@ contract YourContract is CIDAccumulator {
 }
 ```
 
-Accumulator state lives in the [ERC-7201](https://eips.ethereum.org/EIPS/eip-7201) namespace `cid-accumulator.storage.CIDAccumulator`, separate from your contract's ordinary storage slots. Keep the namespace and existing field order/types unchanged across upgrades.
+The [CIDAccumulator contract](contracts/CIDAccumulator.sol) maintains an append-only CID accumulator. Accumulator state lives in the [ERC-7201](https://eips.ethereum.org/EIPS/eip-7201) namespace `cid-accumulator.storage.CIDAccumulator`, separate from your contract's ordinary storage slots.
 
-The [CIDAccumulator contract](contracts/CIDAccumulator.sol) maintains an append-only CID accumulator. Each call to `_appendLeaf` causes your contract to emit an event:
+Each call to `_appendLeaf` causes your contract to emit an event:
 
 ```solidity
 event LeafAppended(
