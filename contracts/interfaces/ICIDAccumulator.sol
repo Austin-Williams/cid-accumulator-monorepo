@@ -13,12 +13,7 @@ interface ICIDAccumulator {
 	/// peakCount is stored in metadata bits 160..164.
 	function getState() external view returns (uint256, bytes32[32] memory);
 
-	/// @notice Returns the raw CIDv1 bytes for this accumulator's root.
-	function getRootCID() external view returns (bytes memory);
-
 	/// @notice Returns the Base32-encoded CID string for this accumulator's root.
+	/// @dev An empty accumulator returns the CID of the DAG-CBOR null block.
 	function getRootCIDString() external view returns (string memory);
-
-	/// @notice Returns this accumulator's packed metadata, including its first-append birthday.
-	function getMMRMetaBits() external view returns (uint256);
 }

@@ -1,4 +1,5 @@
 import { MerkleMountainRange } from "../mmr/MerkleMountainRange.js"
+import { getRootCIDFromPeaks } from "../mmr/utils.js"
 import { createLogger } from "../utils/logging.js"
 import { hexStringToUint8Array, uint8ArrayToHexString, cidDataPairArrayToStringForDB } from "../utils/codec.js"
 import * as dagCbor from "../utils/dagCbor.js"
@@ -165,7 +166,8 @@ export class PinningService implements LifecycleComponent {
 		const snapshot = await this.chain!.snapshot()
 		const mmr = this.mmr
 		if (mmr.leafCount === 0) return false
-		const onChainRootCID = await this.accumulatorContract.getRootCID({ blockHash: snapshot.block.hash, requireCanonical: true })
+		const state = await this.accumulatorContract.getState({ blockHash: snapshot.block.hash, requireCanonical: true })
+		const onChainRootCID = await getRootCIDFromPeaks(state.peaks.map((peak) => peak.cid))
 		const localRootCID = await mmr.rootCID()
 		await this.chain!.ensureCanonical(snapshot)
 		return this.mmr === mmr && onChainRootCID.toString() === localRootCID.toString()

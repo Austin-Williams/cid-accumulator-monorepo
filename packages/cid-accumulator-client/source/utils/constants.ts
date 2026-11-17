@@ -19,20 +19,6 @@ export const CIDAccumulatorABI = [
 	},
 	{
 		inputs: [],
-		name: "getMMRMetaBits",
-		outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
-		stateMutability: "view",
-		type: "function",
-	},
-	{
-		inputs: [],
-		name: "getRootCID",
-		outputs: [{ internalType: "bytes", name: "", type: "bytes" }],
-		stateMutability: "view",
-		type: "function",
-	},
-	{
-		inputs: [],
 		name: "getRootCIDString",
 		outputs: [{ internalType: "string", name: "", type: "string" }],
 		stateMutability: "view",

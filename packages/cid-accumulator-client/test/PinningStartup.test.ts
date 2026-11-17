@@ -47,7 +47,21 @@ async function fixture(t: TestContext, pause: "sync" | "pin") {
 	})
 	const chain = new MerkleMountainRange()
 	const expected = new Set<string>()
-	t.mock.method(contract, "getRootCID", () => chain.rootCID())
+	t.mock.method(contract, "getState", async () => {
+		const heights = [...chain.leafCount.toString(2)].flatMap((bit, index, bits) =>
+			bit === "1" ? [bits.length - index - 1] : []
+		)
+		return {
+			meta: {
+				leafCount: chain.leafCount,
+				peakCount: heights.length,
+				peakHeights: heights,
+				previousInsertBlockNumber: chain.leafCount === 0 ? 0 : 100,
+				deployBlockNumber: chain.leafCount === 0 ? 0 : 100,
+			},
+			peaks: chain.peaks.map((cid, index) => ({ cid, height: heights[index] })),
+		}
+	})
 	const pinner = new IpfsPinner(storage, defaultIpfsPinnerConfig)
 	t.mock.method(pinner, "init", async () => {})
 	const pinned = new Set<string>()

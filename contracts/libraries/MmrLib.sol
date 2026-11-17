@@ -30,8 +30,9 @@ library MmrLib {
 	/// @param peakCount Number of peaks.
 	/// @param peaks Reference to the contract's storage peaks array.
 	/// @return rootHash The root hash of the MMR.
+	/// @dev The empty root is the digest of DAG-CBOR null (0xf6).
 	function bagPeaks(uint256 peakCount, bytes32[32] storage peaks) internal view returns (bytes32 rootHash) {
-		if (peakCount == 0) return bytes32(0);
+		if (peakCount == 0) return keccak256(hex"f6");
 		rootHash = peaks[0];
 		uint256 i = 1;
 		while (i < peakCount) {

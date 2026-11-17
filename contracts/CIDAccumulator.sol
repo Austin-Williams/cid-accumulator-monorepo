@@ -39,22 +39,10 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 	}
 
 	/// @inheritdoc ICIDAccumulator
-	function getRootCID() external view override returns (bytes memory) {
-		CIDAccumulatorStorage storage state = _getAccumulatorStorage();
-		bytes32 root = MmrLib.bagPeaks(state.mmrMetaBits.getPeakCount(), state.peaks);
-		return root.encodeCid();
-	}
-
-	/// @inheritdoc ICIDAccumulator
 	function getRootCIDString() external view override returns (string memory) {
 		CIDAccumulatorStorage storage state = _getAccumulatorStorage();
 		bytes32 root = MmrLib.bagPeaks(state.mmrMetaBits.getPeakCount(), state.peaks);
 		return root.encodeCidString();
-	}
-
-	/// @inheritdoc ICIDAccumulator
-	function getMMRMetaBits() external view override returns (uint256) {
-		return _getAccumulatorStorage().mmrMetaBits;
 	}
 
 	/// @notice Appends one 32-byte payload to this contract's accumulator.

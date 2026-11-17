@@ -71,7 +71,6 @@ function fixture(t: TestContext) {
 	}
 	const getState = t.mock.method(contract, "getState", async () => state())
 	t.mock.method(contract, "getBlockNumber", async () => head)
-	t.mock.method(contract, "getRootCID", () => chain.rootCID())
 	const getLogs = t.mock.method(contract, "getLeafAppendedLogs", async (from: number, to: number) =>
 		logs.filter((event) => event.blockNumber >= from && event.blockNumber <= to)
 	)

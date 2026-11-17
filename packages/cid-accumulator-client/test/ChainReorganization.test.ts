@@ -115,10 +115,6 @@ async function fixture(t: TestContext, startEmpty = false) {
 		if (typeof reference === "object") assert.equal(canonical(selected.block.number).block.hash, reference.blockHash)
 		return selected.state
 	})
-	t.mock.method(contract, "getRootCID", async (reference: BlockReference = "latest") => {
-		const selected = typeof reference === "object" ? history.get(reference.blockHash)! : tip
-		return getRootCIDFromPeaks(selected.state.peaks.map((peak) => peak.cid))
-	})
 	t.mock.method(
 		contract,
 		"getLeafAppendedLogs",

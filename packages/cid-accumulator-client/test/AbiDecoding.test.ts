@@ -2,7 +2,8 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import { concat, getBytes, hexlify, Interface, toBeHex } from "ethers"
 import { parseLeafAppendedLog } from "../source/ethereum/abiUtils.js"
-import { getLeafAppendedLogs, getRootCID, getState } from "../source/ethereum/commonCalls.js"
+import { getLeafAppendedLogs, getState } from "../source/ethereum/commonCalls.js"
+import { getRootCIDFromPeaks } from "../source/mmr/utils.js"
 import { EthereumAddress } from "../source/ethereum/EthereumAddress.js"
 import { AccumulatorContract } from "../source/ethereum/AccumulatorContract.js"
 import { CIDAccumulatorABI } from "../source/utils/constants.js"
@@ -80,7 +81,8 @@ test("accumulator RPC calls use the consumer address and pinned block without ac
 	const payload = toBeHex(1, 32)
 	const log = encodeLog(payload, [])
 	const metadata = 1n << 160n | 1n << 165n | BigInt(previousInsertBlockNumber) << 197n | 100n << 229n
-	const root = "0x01711b20" + "42".repeat(32)
+	const peak = "0x" + "42".repeat(32)
+	const root = "0x01711b20" + peak.slice(2)
 	const requests: Array<{ method: string; params: any[] }> = []
 	t.mock.method(globalThis, "fetch", async (_url: unknown, options: RequestInit) => {
 		const request = JSON.parse(options.body as string)
@@ -89,8 +91,8 @@ test("accumulator RPC calls use the consumer address and pinned block without ac
 		if (request.method === "eth_chainId") result = "0x20000000000001"
 		else if (request.method === "eth_getLogs") result = [log]
 		else if (request.params[0].data === abi.getFunction("getState")!.selector) {
-			result = abi.encodeFunctionResult("getState", [metadata, Array(32).fill(toBeHex(0, 32))])
-		} else result = abi.encodeFunctionResult("getRootCID", [root])
+			result = abi.encodeFunctionResult("getState", [metadata, [peak, ...Array(31).fill(toBeHex(0, 32))]])
+		}
 		return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }))
 	})
 	const params = { ethereumHttpRpcUrl: "http://localhost:8545", contractAddress, block }
@@ -105,7 +107,7 @@ test("accumulator RPC calls use the consumer address and pinned block without ac
 	const state = await getState(params)
 	assert.equal(state.meta.leafCount, 1)
 	assert.equal(state.meta.deployBlockNumber, 100)
-	assert.equal(hexlify((await getRootCID(params)).bytes), root)
+	assert.equal(hexlify((await getRootCIDFromPeaks(state.peaks.map((entry) => entry.cid))).bytes), root)
 	const events = await getLeafAppendedLogs({
 		...params,
 		fromBlock: previousInsertBlockNumber + 1,
@@ -117,7 +119,6 @@ test("accumulator RPC calls use the consumer address and pinned block without ac
 	assert.deepEqual(requests.map(({ method, params }) => ({ method, params })), [
 		{ method: "eth_chainId", params: [] },
 		{ method: "eth_call", params: [{ to: account, data: abi.getFunction("getState")!.selector }, block] },
-		{ method: "eth_call", params: [{ to: account, data: abi.getFunction("getRootCID")!.selector }, block] },
 		{ method: "eth_getLogs", params: [{ address: account, topics: [abi.getEvent("LeafAppended")!.topicHash], blockHash }] },
 	])
 })

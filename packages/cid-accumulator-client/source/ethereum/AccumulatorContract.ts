@@ -6,11 +6,9 @@ import {
 	getBlockNumber,
 	getChainId,
 	getLeafAppendedLogs,
-	getRootCID,
 	getState,
 } from "./commonCalls.js"
 
-import type { CID } from "../ipfs/CID.js"
 import type { AccumulatorContractConfig } from "./AccumulatorContract.types.js"
 import type { AccumulatorMetadata, PeakWithHeight } from "../mmr/types.js"
 import type { LifecycleComponent } from "../types/common.js"
@@ -60,14 +58,6 @@ export class AccumulatorContract implements LifecycleComponent {
 
 	async getState(block: BlockReference = "latest"): Promise<{ meta: AccumulatorMetadata; peaks: PeakWithHeight[] }> {
 		return this.rateLimiter.execute(() => getState({
-			ethereumHttpRpcUrl: this.ethereumHttpRpcUrl,
-			contractAddress: this.address,
-			block,
-		}))
-	}
-
-	async getRootCID(block: BlockReference = "latest"): Promise<CID<unknown, 113, 27, 1>> {
-		return this.rateLimiter.execute(() => getRootCID({
 			ethereumHttpRpcUrl: this.ethereumHttpRpcUrl,
 			contractAddress: this.address,
 			block,

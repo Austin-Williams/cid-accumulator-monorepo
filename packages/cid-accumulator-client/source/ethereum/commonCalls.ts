@@ -1,4 +1,3 @@
-import { CID } from "../ipfs/CID.js"
 import { contractPeakHexToMmrCid } from "../utils/codec.js"
 import { createLogger } from "../utils/logging.js"
 import { callContractView, ethRpcFetch } from "./ethRpcFetch.js"
@@ -7,7 +6,6 @@ import {
 	getEventTopic,
 	getSelector,
 	parseAccumulatorMetaBits,
-	parseGetRootCIDResult,
 	parseGetStateResult,
 	parseLeafAppendedLog,
 } from "./abiUtils.js"
@@ -109,19 +107,6 @@ export async function getBlockNumber(ethereumHttpRpcUrl: string): Promise<number
 		logger.error(`Error getting block number: ${error}`)
 		throw error
 	}
-}
-
-/** Fetch the root CID from the configured accumulator at a chosen block. */
-export async function getRootCID(params: {
-	ethereumHttpRpcUrl: string
-	contractAddress: EthereumAddress
-	block?: BlockReference
-}): Promise<CID<unknown, 113, 27, 1>> {
-	const { ethereumHttpRpcUrl, contractAddress, block = "latest" } = params
-	const result: string = await callContractView(
-		ethereumHttpRpcUrl, contractAddress.toString(), getSelector("getRootCID()"), block
-	)
-	return CID.decode(parseGetRootCIDResult(result))
 }
 
 /** Fetch this accumulator's state, including its first-append birthday. */

@@ -179,16 +179,6 @@ export function isInternalNode(obj: unknown): obj is { L: CID<unknown, 113, 27, 
 	)
 }
 
-export function parseGetRootCIDResult(abiResult: string): Uint8Array {
-	// ABI encoding for bytes: 32 bytes offset, then 32 bytes length, then data
-	const buf = hexStringToUint8Array(abiResult)
-	if (buf.length < 64) throw new Error("Result too short for ABI-encoded bytes")
-	// Read length as big-endian uint32 from offset 60
-	const len = (buf[60] << 24) | (buf[61] << 16) | (buf[62] << 8) | buf[63]
-	if (buf.length < 64 + len) throw new Error("Result too short for declared length")
-	return buf.slice(64, 64 + len)
-}
-
 export function parseGetStateResult(hex: string): [bigint, DagCborEncodedData[]] {
 	const data = hex.startsWith("0x") ? hex.slice(2) : hex
 	if (data.length < 64 + 32 * 64) throw new Error("Result too short for ABI-encoded tuple")
