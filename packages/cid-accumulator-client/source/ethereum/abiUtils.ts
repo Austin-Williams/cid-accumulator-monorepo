@@ -92,29 +92,27 @@ export async function parseLeafAppendedLog(log: RawEthLog): Promise<NormalizedLe
 		throw new Error("Invalid LeafAppended metadata")
 	}
 	// Validate complete uint256 offsets and lengths before allocating decoded data.
-	const offset = readWord(32)
-	if (offset !== 64n) {
+	const offset = readWord(64)
+	if (offset !== 96n) {
 		throw new Error("Invalid LeafAppended ABI offset")
 	}
-	const combinedLen = readWord(Number(offset))
-	if (offset + 32n + combinedLen !== byteLength) {
-		throw new Error("Invalid LeafAppended combined length")
+	const mergeHashesLen = readWord(Number(offset))
+	if (offset + 32n + mergeHashesLen !== byteLength) {
+		throw new Error("Invalid LeafAppended merge hashes length")
 	}
 
 	// Unpack before converting to Number: the combined uint64 can exceed safe integer precision.
 	const leafIndex = metadata & 0xffffffffn
 	let mergeCount = 0
 	for (let index = leafIndex; (index & 1n) !== 0n; index >>= 1n) mergeCount++
-	const mergeHashesLen = BigInt(mergeCount) * 32n
 	// Each merge consumes a peak; the contract's five-bit peak count is at most 31.
-	if (mergeCount > 31 || combinedLen !== 32n + mergeHashesLen) {
+	if (mergeCount > 31 || mergeHashesLen !== BigInt(mergeCount) * 32n) {
 		throw new Error("Invalid LeafAppended merge hash count")
 	}
 
-	// The fixed-size payload occupies the first word; the remaining words are consumed peaks.
-	const payloadStart = (Number(offset) + 32) * 2
-	const hashesStart = payloadStart + 64
-	const payload = hexStringToUint8Array(data.slice(payloadStart, hashesStart))
+	// The payload is the second head word; the dynamic body contains consumed peaks' hashes.
+	const payload = hexStringToUint8Array(data.slice(64, 128))
+	const hashesStart = (Number(offset) + 32) * 2
 	const mergeLeftHashes: CID<unknown, 113, 27, 1>[] = []
 	for (let i = 0; i < mergeCount; i++) {
 		const start = hashesStart + i * 64

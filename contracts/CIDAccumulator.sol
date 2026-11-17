@@ -92,9 +92,9 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 			let hashesLength := shl(5, mload(mergeLeftHashes))
 			// Leaf index and previous insertion block are adjacent 32-bit metadata fields.
 			mstore(ptr, and(shr(165, packedBits), 0xffffffffffffffff))
-			mstore(add(ptr, 32), 64)
-			mstore(add(ptr, 64), add(32, hashesLength))
-			mstore(add(ptr, 96), payload)
+			mstore(add(ptr, 32), payload)
+			mstore(add(ptr, 64), 96)
+			mstore(add(ptr, 96), hashesLength)
 			mcopy(add(ptr, 128), add(mergeLeftHashes, 32), hashesLength)
 			// Every body element is a full word, so the encoding needs no trailing padding.
 			log1(ptr, add(128, hashesLength), eventTopic)

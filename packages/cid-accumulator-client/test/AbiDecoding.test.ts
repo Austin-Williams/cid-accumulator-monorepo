@@ -15,7 +15,7 @@ const previousInsertBlockNumber = 20_000_000
 function encodeLog(payload: string, hashes: string[]): RawEthLog {
 	const metadata = BigInt(2 ** hashes.length - 1) | (BigInt(previousInsertBlockNumber) << 32n)
 	return {
-		...abi.encodeEventLog(abi.getEvent("LeafAppended")!, [metadata, concat([payload, ...hashes])]),
+		...abi.encodeEventLog(abi.getEvent("LeafAppended")!, [metadata, payload, concat(hashes)]),
 		address: account,
 		blockNumber: toBeHex(previousInsertBlockNumber + 1),
 		blockHash: "0x" + "CD".repeat(32),
@@ -56,13 +56,13 @@ test("LeafAppended decoding preserves ABI payloads and merge hashes through the 
 test("LeafAppended decoding bounds untrusted ABI offsets and lengths before decoding", async () => {
 	const empty = encodeLog(toBeHex(0, 32), [])
 	const cases: [string, RawEthLog][] = [
-		["missing head", { ...empty, data: empty.data.slice(0, 2 + 63 * 2) }],
+		["missing head", { ...empty, data: empty.data.slice(0, 2 + 95 * 2) }],
 		["invalid hex", { ...empty, data: empty.data.slice(0, -2) + "gg" }],
 		["metadata exceeds uint64", replaceWord(empty, 0, 1n << 64n)],
-		["offset inside head", replaceWord(empty, 32, 32n)],
-		["unaligned offset", replaceWord(empty, 32, 65n)],
-		["uint256 offset", replaceWord(empty, 32, (1n << 200n) + 64n)],
-		["uint256 combined length", replaceWord(empty, 64, 1n << 200n)],
+		["offset inside head", replaceWord(empty, 64, 64n)],
+		["unaligned offset", replaceWord(empty, 64, 97n)],
+		["uint256 offset", replaceWord(empty, 64, (1n << 200n) + 96n)],
+		["uint256 merge hashes length", replaceWord(empty, 96, 1n << 200n)],
 		["missing merge hashes", replaceWord(empty, 0, 1n)],
 		["truncated body", { ...empty, data: empty.data.slice(0, -2) }],
 		["beyond contract limit", encodeLog(toBeHex(0, 32), Array(32).fill(toBeHex(1, 32)))],

@@ -11,7 +11,8 @@ export const CIDAccumulatorABI = [
 		anonymous: false,
 		inputs: [
 			{ indexed: false, internalType: "uint64", name: "metadata", type: "uint64" },
-			{ indexed: false, internalType: "bytes", name: "payloadAndMergeHashes", type: "bytes" },
+			{ indexed: false, internalType: "bytes32", name: "payload", type: "bytes32" },
+			{ indexed: false, internalType: "bytes", name: "mergeHashes", type: "bytes" },
 		],
 		name: "LeafAppended",
 		type: "event",
@@ -49,4 +50,4 @@ export const CIDAccumulatorABI = [
 	},
 ]
 
-export const LEAF_APPENDED_EVENT_SIGNATURE = "LeafAppended(uint64,bytes)"
+export const LEAF_APPENDED_EVENT_SIGNATURE = "LeafAppended(uint64,bytes32,bytes)"

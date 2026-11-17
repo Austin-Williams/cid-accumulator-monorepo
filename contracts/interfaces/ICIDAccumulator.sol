@@ -4,9 +4,9 @@ pragma solidity 0.8.38;
 /// @notice Read-only interface and append events for an inheriting CID accumulator.
 interface ICIDAccumulator {
 	/// @dev metadata: low 32 bits = leaf index, high 32 bits = previous insertion block.
-	/// @dev payloadAndMergeHashes: the 32-byte payload followed by consumed peaks' 32-byte hashes.
+	/// @dev payload: the 32-byte payload; mergeHashes: the consumed peaks' 32-byte hashes.
 	/// The hash count is the number of trailing one bits in the leaf index.
-	event LeafAppended(uint64 metadata, bytes payloadAndMergeHashes);
+	event LeafAppended(uint64 metadata, bytes32 payload, bytes mergeHashes);
 
 	/// @notice Returns this accumulator's packed metadata and peaks.
 	/// @dev Only the first peakCount entries are active; the rest may contain stale hashes.

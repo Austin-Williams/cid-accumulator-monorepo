@@ -63,8 +63,9 @@ Each call to `_appendLeaf` causes your contract to emit an event:
 event LeafAppended(
   // low 32 bits: leaf index; high 32 bits: previous insertion block
   uint64 metadata,
-  // 32-byte payload followed by the 32-byte merge hashes needed for CID walkback
-  bytes payloadAndMergeHashes
+  bytes32 payload,
+  // 32-byte merge hashes needed for CID walkback
+  bytes mergeHashes
 );
 ```
 
@@ -419,7 +420,7 @@ So the steady-state gas cost is determined only by that insert’s merge activit
 
 The mean steady-state cost per insert is ≈ 14.7k gas.
 
-Note: The very first time your contract appends data to the accumulator, the execution cost is about 47.2k gas because two empty storage slots need to be unzeroed when initializing the contract's accumulator. Later inserts that use a previously untouched peak slot cost about 17.1k gas more than the table above.
+Note: The very first time your contract appends data to the accumulator, the execution cost is about 47.1k gas because two empty storage slots need to be unzeroed when initializing the contract's accumulator. Later inserts that use a previously untouched peak slot cost about 17.1k gas more than the table above.
 
 ## How the CID is computed by the smart contract (for nerds)
 
