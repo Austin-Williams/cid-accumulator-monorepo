@@ -83,7 +83,8 @@ export class IndexedDBAdapter implements Storage {
 		if (!db) throw new Error("IndexedDB database not initialized.")
 		const tx = db.transaction(this.storeName, "readonly")
 		const store = tx.objectStore(this.storeName)
-		const req = store.openCursor()
+		const normalizedPrefix = prefix.toLowerCase()
+		const req = store.openCursor(IDBKeyRange.lowerBound(normalizedPrefix))
 		// Wrap cursor iteration in a promise to collect results, then yield
 		const results: { key: string; value: string }[] = await new Promise((resolve, reject) => {
 			const out: { key: string; value: string }[] = []
@@ -91,12 +92,10 @@ export class IndexedDBAdapter implements Storage {
 			tx.onabort = () => reject(tx.error ?? new Error("IndexedDB transaction aborted"))
 			req.onsuccess = () => {
 				const cursor = req.result as IDBCursorWithValue | null
-				if (cursor) {
-					if (typeof cursor.key === "string" && cursor.key.startsWith(prefix.toLowerCase())) {
-						out.push({ key: cursor.key, value: cursor.value })
-					}
-					cursor.continue()
-				}
+				// String keys with this prefix are contiguous in IndexedDB order.
+				if (!cursor || typeof cursor.key !== "string" || !cursor.key.startsWith(normalizedPrefix)) return
+				out.push({ key: cursor.key, value: cursor.value })
+				cursor.continue()
 			}
 			req.onerror = () => reject(req.error)
 		})

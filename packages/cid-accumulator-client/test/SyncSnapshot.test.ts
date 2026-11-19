@@ -163,9 +163,9 @@ describe("sync snapshots while the contract advances", { concurrency: false, tim
 	test("an append during hashing is noticed after the initial cache count", async (t) => {
 		const f = fixture(t)
 		await f.append(Uint8Array.of(1))
-		const addLeaf = MerkleMountainRange.prototype.addLeafWithTrail
+		const addLeaf = MerkleMountainRange.prototype.addLeaf
 		let appended = false
-		t.mock.method(MerkleMountainRange.prototype, "addLeafWithTrail", async function (this: MerkleMountainRange, ...args: Parameters<typeof addLeaf>) {
+		t.mock.method(MerkleMountainRange.prototype, "addLeaf", async function (this: MerkleMountainRange, ...args: Parameters<typeof addLeaf>) {
 			const result = await addLeaf.apply(this, args)
 			if (!appended) {
 				appended = true

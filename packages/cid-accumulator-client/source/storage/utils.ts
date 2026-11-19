@@ -68,18 +68,17 @@ export async function putLeafRecordInDB(
 	)
 }
 
-// Retrieve a leaf record by account and leafIndex, reconstructing from individual fields. Throws if types are not correct. */
-export async function getLeafRecordFromDB(
+/** Reads a leaf payload after checking the required fields of its record. */
+export async function getLeafPayloadFromDB(
 	storage: Storage,
 	account: EthereumAddress,
 	leafIndex: number
-): Promise<LeafRecord | undefined> {
+): Promise<Uint8Array | undefined> {
 	const keyPrefix = `account:${account.toString()}:leaf:${leafIndex}`
 
 	// Get account field (should match the account parameter)
 	const storedAccountStr = await storage.get(`${keyPrefix}:account`)
 	if (storedAccountStr === undefined) return undefined
-	const storedAccount = EthereumAddress.fromString(storedAccountStr)
 	if (storedAccountStr !== account.toString()) throw new Error("Account mismatch! This should never happen.")
 
 	// Get required leafIndex field
@@ -92,7 +91,17 @@ export async function getLeafRecordFromDB(
 	const payloadStr = await storage.get(`${keyPrefix}:payload`)
 	if (payloadStr === undefined)
 		throw new Error("Payload not found, but account and leafIndex exist! This should never happen.")
-	const payload = hexStringToUint8Array(payloadStr)
+	return hexStringToUint8Array(payloadStr)
+}
+
+export async function getLeafRecordFromDB(
+	storage: Storage,
+	account: EthereumAddress,
+	leafIndex: number
+): Promise<LeafRecord | undefined> {
+	const payload = await getLeafPayloadFromDB(storage, account, leafIndex)
+	if (payload === undefined) return undefined
+	const keyPrefix = `account:${account}:leaf:${leafIndex}`
 
 	// Define a type for field parsers that maps directly to LeafRecord properties
 	type FieldParser<K extends keyof LeafRecord> = [K, (val: string) => Promise<LeafRecord[K]> | LeafRecord[K]]
@@ -110,7 +119,7 @@ export async function getLeafRecordFromDB(
 
 	// Process each optional field
 	const result = {
-		account: storedAccount,
+		account,
 		leafIndex: leafIndex,
 		payload,
 	} as LeafRecord

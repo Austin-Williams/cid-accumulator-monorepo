@@ -1,4 +1,4 @@
-import { getChainState, type ChainState, type ChainSnapshot } from "./ChainState.js"
+import { getChainState, type ChainState, type ChainSnapshotWithFinality } from "./ChainState.js"
 import { createLogger } from "../utils/logging.js"
 import { getLeafRecordFromNormalizedDataAppendedEvent } from "../utils/codec.js"
 import { putLeafRecordInDB, getLeafRecordFromDB } from "../storage/utils.js"
@@ -8,6 +8,10 @@ import type { AccumulatorContract } from "../ethereum/AccumulatorContract.js"
 import type { Storage } from "../storage/interface.js"
 import type { NormalizedDataAppendedEvent } from "../ethereum/events.types.js"
 import type { EventCacheServiceConfig } from "./EventCacheService.types.js"
+
+const FINALIZED_BATCH_SIZE = 500
+const LIVE_BATCH_SIZE = 10
+
 /** Caches and follows events emitted by one configured accumulator contract. */
 export class EventCacheService implements LifecycleComponent {
 	private get chain(): Promise<ChainState> { return getChainState(this.storage, this.accumulatorContract) }
@@ -104,11 +108,13 @@ export class EventCacheService implements LifecycleComponent {
 			await this.pollForNewEvents(currentBlock, generation)
 			if (!this.isCurrentPoll(generation)) return
 			this.logger.log("Starting polling")
+			let activePoll: Promise<void> | undefined
 			this.pollingInterval = setInterval(() => {
 				if (!this.isCurrentPoll(generation)) return
-				return this.pollForNewEvents(undefined, generation).catch((error: Error) => {
-					this.logger.error(`Error polling for events: ${error}`)
-				})
+				activePoll ??= this.pollForNewEvents(undefined, generation)
+					.catch((error: Error) => this.logger.error(`Error polling for events: ${error}`))
+					.finally(() => { activePoll = undefined })
+				return activePoll
 			}, this.pollingIntervalMs)
 		} catch (error) {
 			if (generation === this.pollingGeneration) this.isPolling = false
@@ -171,27 +177,40 @@ export class EventCacheService implements LifecycleComponent {
 			if (savedCursor !== undefined) this.setPollingCursor(Math.min(this.lastPolledBlockNum, Number(savedCursor)))
 		}
 		currentBlock = Math.min(currentBlock ?? snapshot.block.number, snapshot.block.number)
-		for (let startBlock = this.lastPolledBlockNum + 1; startBlock <= currentBlock; startBlock += 10) {
-			const endBlock = Math.min(startBlock + 9, currentBlock)
-			const events = await this.fetchRange(startBlock, endBlock, snapshot)
+		let finalizedBatchSize = FINALIZED_BATCH_SIZE
+		let startBlock = this.lastPolledBlockNum + 1
+		while (startBlock <= currentBlock && this.isCurrentPoll(generation)) {
+			const endBlock = startBlock <= snapshot.finalizedBlockNumber
+				? Math.min(startBlock + finalizedBatchSize - 1, snapshot.finalizedBlockNumber, currentBlock)
+				: Math.min(startBlock + LIVE_BATCH_SIZE - 1, currentBlock)
+			let events: NormalizedDataAppendedEvent[]
+			try {
+				events = await this.fetchRange(startBlock, endBlock, snapshot)
+			} catch (error) {
+				// Some RPC providers only accept small log ranges. Retry the same cursor.
+				if (endBlock - startBlock + 1 <= LIVE_BATCH_SIZE) throw error
+				finalizedBatchSize = LIVE_BATCH_SIZE
+				continue
+			}
+			const eventsByBlock = groupEventsByBlock(events)
 			await chain.ensureCanonical(snapshot)
 			await chain.commit(snapshot, async () => {
 				for (let block = startBlock; block <= endBlock; block++) {
 					if (!this.isCurrentPoll(generation)) return
-					await this.processEventsForBlock(block, events.filter(event => event.blockNumber === block))
+					await this.processEventsForBlock(block, eventsByBlock.get(block) ?? [])
 					await this.storage.put("events:latestPolledBlock", String(block))
 					this.lastPolledBlockNum = block
 					this.announcedEvents.delete(block)
 				}
 			})
+			startBlock = endBlock + 1
 		}
 	}
 
-	private async fetchRange(from: number, to: number, snapshot: ChainSnapshot): Promise<NormalizedDataAppendedEvent[]> {
+	private async fetchRange(from: number, to: number, snapshot: ChainSnapshotWithFinality): Promise<NormalizedDataAppendedEvent[]> {
 		const chain = await this.chain
-		const finalized = await this.accumulatorContract.getBlock("finalized")
 		const events: NormalizedDataAppendedEvent[] = []
-		const historicalEnd = Math.min(to, finalized.number, snapshot.block.number)
+		const historicalEnd = Math.min(to, snapshot.finalizedBlockNumber, snapshot.block.number)
 		if (from <= historicalEnd) events.push(...await this.accumulatorContract.getDataAppendedLogs(from, historicalEnd))
 		for (let number = Math.max(from, historicalEnd + 1); number <= to; number++) {
 			const block = await chain.getBlock(snapshot, number)
@@ -287,7 +306,7 @@ export class EventCacheService implements LifecycleComponent {
 	 * 	to avoid hitting rate limits.
 	 * @param batchSize Number of blocks to process in each batch (default: 500)
 	 */
-	public async syncEventsUpToLatestBlock(batchSize: number = 500): Promise<void> {
+	public async syncEventsUpToLatestBlock(batchSize: number = FINALIZED_BATCH_SIZE): Promise<void> {
 		if (!this.initialized) await this.init()
 
 		// Get latest block
@@ -320,17 +339,7 @@ export class EventCacheService implements LifecycleComponent {
 			const events = await this.fetchRange(startBlock, endBlock, snapshot)
 			await chain.ensureCanonical(snapshot)
 
-			// Process events by block
-			const blockToEvents = new Map<number, NormalizedDataAppendedEvent[]>()
-
-			// Group events by block number
-			for (const event of events) {
-				const blockNumber = Number(event.blockNumber)
-				if (!blockToEvents.has(blockNumber)) {
-					blockToEvents.set(blockNumber, [])
-				}
-				blockToEvents.get(blockNumber)!.push(event)
-			}
+			const blockToEvents = groupEventsByBlock(events)
 
 			// Process each block's events
 			for (let blockNum = startBlock; blockNum <= endBlock; blockNum++) {
@@ -500,6 +509,16 @@ export class EventCacheService implements LifecycleComponent {
 }
 
 // HELPERS
+
+function groupEventsByBlock(events: NormalizedDataAppendedEvent[]): Map<number, NormalizedDataAppendedEvent[]> {
+	const byBlock = new Map<number, NormalizedDataAppendedEvent[]>()
+	for (const event of events) {
+		const records = byBlock.get(event.blockNumber)
+		if (records) records.push(event)
+		else byBlock.set(event.blockNumber, [event])
+	}
+	return byBlock
+}
 
 /**
  * Interface defining a contiguous batch of blocks

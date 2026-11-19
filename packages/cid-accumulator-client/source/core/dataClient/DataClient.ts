@@ -1,7 +1,7 @@
 import { getChainState, ChainChangedError, type ChainState, type ChainSnapshot } from "../../services/ChainState.js"
 import type { ChainBlock } from "../../ethereum/events.types.js"
 import { createLogger } from "../../utils/logging.js"
-import { getLeafRecordFromDB, putLeafRecordInDB } from "../../storage/utils.js"
+import { getLeafPayloadFromDB, putLeafRecordInDB } from "../../storage/utils.js"
 import { peakWithHeightArrayToStringForDB, uint8ArrayToHexString } from "../../utils/codec.js"
 import { isNodeJs } from "../../utils/envDetection.js"
 import { computePreviousRootCIDAndPeaksWithHeights, getRootCIDFromPeaks } from "../../mmr/utils.js"
@@ -200,10 +200,8 @@ export class DataClient {
 	}
 
 	private async readPayload(leafIndex: number): Promise<string | undefined> {
-		const record = await getLeafRecordFromDB(this.storage, this.account, leafIndex)
-		if (!record || !record.payload) return undefined
-		if (!(record.payload instanceof Uint8Array)) throw new Error(`[DataClient] Payload for leaf ${leafIndex} is not a Uint8Array`)
-		return uint8ArrayToHexString(record.payload)
+		const payload = await getLeafPayloadFromDB(this.storage, this.account, leafIndex)
+		return payload === undefined ? undefined : uint8ArrayToHexString(payload)
 	}
 
 	/**
@@ -338,13 +336,9 @@ export class DataClient {
 	 * @return An async iterable that yields objects with leaf index and payload
 	 */
 	public async *iterate(): AsyncIterable<{ index: number; payload: string }> {
-		// Create a prefix for all keys related to this account's leaves
-		const prefix = `account:${this.account.toString()}:leaf:`
-
-		// Get an iterator from the storage adapter
 		const chain = await this.chain
 		const generation = chain.generation
-		const iterator = this.storage.iterate(prefix)[Symbol.asyncIterator]()
+		const iterator = this.storedPayloads()
 
 		try {
 			while (true) {
@@ -354,19 +348,18 @@ export class DataClient {
 				})
 				if (next.done) break
 				if (generation !== chain.generation) throw new ChainChangedError()
-				const { key, value } = next.value
-				// Only process keys that end with :payload
-				if (key.endsWith(":payload")) {
-					// Extract the leaf index from the key
-					const match = key.match(/^account:.*?:leaf:(\d+):payload$/)
-					if (match) {
-						const index = parseInt(match[1], 10)
-						yield { index, payload: value }
-					}
-				}
+				yield next.value
 			}
 		} finally {
-			await iterator.return?.()
+			await iterator.return(undefined)
+		}
+	}
+
+	private async *storedPayloads() {
+		const prefix = `account:${this.account}:leaf:`
+		for await (const { key, value } of this.storage.iterate(prefix)) {
+			const match = /^(\d+):payload$/.exec(key.slice(prefix.length))
+			if (match) yield { index: Number(match[1]), payload: value }
 		}
 	}
 
@@ -406,20 +399,9 @@ export class DataClient {
 	 * @dev This is efficient for the in-memory Map, and does not require iterating over all possible indexes if there are gaps at the end.
 	 */
 	private async getHighestContiguousLeafIndexWithData(): Promise<number> {
-		const prefix = `account:${this.account.toString()}:leaf:`
-		// Collect all keys that match `${account}:leaf:{number}:payload`
 		const indexes: number[] = []
-		for await (const { key } of this.storage.iterate(prefix)) {
-			if (!key.startsWith(prefix)) continue
-			const suffix = key.slice(prefix.length)
-			const match = suffix.match(/^(\d+):payload$/)
-			if (match) {
-				const idx = parseInt(match[1], 10)
-				const value = await this.storage.get(key)
-				if (value !== undefined && value !== null) {
-					indexes.push(idx)
-				}
-			}
+		for await (const { index, payload } of this.storedPayloads()) {
+			if (payload != null) indexes.push(index)
 		}
 		if (indexes.length === 0) return -1
 		indexes.sort((a, b) => a - b)
@@ -573,10 +555,12 @@ export class DataClient {
 	private async verifyCachedPayloadCount(leafCount: number): Promise<void> {
 		let payloadCount = 0
 		let highestIndex = -1
-		for await (const { index } of this.iterate()) {
-			payloadCount++
-			highestIndex = Math.max(highestIndex, index)
-		}
+		await (await this.chain).read(async () => {
+			for await (const { index } of this.storedPayloads()) {
+				payloadCount++
+				highestIndex = Math.max(highestIndex, index)
+			}
+		})
 		if (payloadCount !== leafCount || highestIndex !== leafCount - 1) {
 			const message = `[DataClient] Cache integrity check failed for ${this.account}: expected ${leafCount} contiguous payloads starting at index 0; found ${payloadCount} payloads with highest index ${highestIndex}.`
 			if (highestIndex >= leafCount) throw new CacheAheadOfSnapshotError(message)
@@ -591,9 +575,9 @@ export class DataClient {
 		// Read by index: storage iteration order and cached root metadata are not authoritative.
 		const mmr = new MerkleMountainRange()
 		for (let index = 0; index < leafCount; index++) {
-			const record = await (await this.chain).read(() => getLeafRecordFromDB(this.storage, this.account, index))
-			if (!record) throw new Error(`${errorPrefix}: missing leaf record at index ${index}.`)
-			await mmr.addLeafWithTrail(index, record.payload)
+			const payload = await (await this.chain).read(() => getLeafPayloadFromDB(this.storage, this.account, index))
+			if (payload === undefined) throw new Error(`${errorPrefix}: missing leaf record at index ${index}.`)
+			await mmr.addLeaf(index, payload)
 		}
 		const actualRootCID = await mmr.rootCID()
 		if (!actualRootCID.equals(expectedRootCID)) {
@@ -673,9 +657,8 @@ export class DataClient {
 	private async getLeafIndexesWithMissingPayload(maxLeafIndex: number): Promise<number[]> {
 		const missing: number[] = []
 		for (let i = 0; i <= maxLeafIndex; i++) {
-			const rec = await (await this.chain).read(() => getLeafRecordFromDB(this.storage, this.account, i))
-			// Only count as missing if rec is undefined or payload is not a Uint8Array
-			if (!rec || !(rec.payload instanceof Uint8Array)) missing.push(i)
+			const payload = await (await this.chain).read(() => getLeafPayloadFromDB(this.storage, this.account, i))
+			if (payload === undefined) missing.push(i)
 		}
 		return missing
 	}

@@ -5,13 +5,16 @@ import type { PeakWithHeight } from "../mmr/types.js"
 import { CID } from "../ipfs/CID.js"
 import type { Storage } from "../storage/interface.js"
 import { getStorageCoordinator, type StorageCoordinator } from "../storage/coordination.js"
-import { deleteLeafSuffix, getLeafRecordFromDB } from "../storage/utils.js"
+import { deleteLeafSuffix, getLeafPayloadFromDB } from "../storage/utils.js"
 import { MerkleMountainRange } from "../mmr/MerkleMountainRange.js"
 import { getRootCIDFromPeaks } from "../mmr/utils.js"
 
 export interface ChainSnapshot {
 	block: ChainBlock
 	generation: number
+}
+export interface ChainSnapshotWithFinality extends ChainSnapshot {
+	finalizedBlockNumber: number
 }
 export interface ChainRollback {
 	account: EthereumAddress
@@ -76,11 +79,8 @@ export class ChainState {
 		}
 	}
 
-	async snapshot(): Promise<ChainSnapshot> {
-		return this.coordinator.run(async () => {
-			await this.refresh()
-			return { block: JSON.parse((await this.storage.get("chain:head"))!), generation: this.coordinator.generation }
-		})
+	async snapshot(): Promise<ChainSnapshotWithFinality> {
+		return this.coordinator.run(() => this.refresh())
 	}
 
 	async ensureCanonical(snapshot: ChainSnapshot): Promise<void> {
@@ -147,7 +147,7 @@ export class ChainState {
 		)
 	}
 
-	private async refresh(): Promise<void> {
+	private async refresh(): Promise<ChainSnapshotWithFinality> {
 		const latest = await this.contract.getBlock("latest")
 		const headText = await this.storage.get("chain:head")
 		const head: ChainBlock | undefined = headText ? JSON.parse(headText) : undefined
@@ -191,7 +191,8 @@ export class ChainState {
 		}
 		const baselineText = await this.storage.get("chain:head")
 		const baseline: ChainBlock | undefined = baselineText ? JSON.parse(baselineText) : undefined
-		if (baseline?.hash === latest.hash && oldFinalized?.hash === finalized.hash) return
+		const snapshot = { block: latest, finalizedBlockNumber: finalized.number, generation: this.coordinator.generation }
+		if (baseline?.hash === latest.hash && oldFinalized?.hash === finalized.hash) return snapshot
 		// Do not overwrite saved ancestry until the complete candidate branch has been checked.
 		const staged: ChainBlock[] = []
 		let block = latest
@@ -225,6 +226,7 @@ export class ChainState {
 			const number = Number(key.slice("chain:block:".length))
 			if (number < finalized.number || number > latest.number) await this.storage.delete(key)
 		}
+		return snapshot
 	}
 
 	private async commonAncestor(head: ChainBlock, latest: ChainBlock): Promise<ChainBlock> {
@@ -267,12 +269,12 @@ export class ChainState {
 				const mmr = new MerkleMountainRange()
 				let complete = true
 				for (let i = 0; i < from; i++) {
-					const record = await getLeafRecordFromDB(this.storage, account, i)
-					if (!record) {
+					const payload = await getLeafPayloadFromDB(this.storage, account, i)
+					if (payload === undefined) {
 						complete = false
 						break
 					}
-					await mmr.addLeafWithTrail(i, record.payload)
+					await mmr.addLeaf(i, payload)
 				}
 				const expected = await getRootCIDFromPeaks(state.peaks.map((peak) => peak.cid))
 				const actual = await getRootCIDFromPeaks(mmr.peaks)

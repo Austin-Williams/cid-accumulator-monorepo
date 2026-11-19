@@ -1,7 +1,7 @@
 import type { MMRLeafAppendedTrail } from "./types.js"
 import { CID } from "../ipfs/CID.js"
 import { encodeBlock } from "../utils/codec.js"
-import { NULL_CID } from "../utils/constants.js"
+import { getRootCIDFromPeaks } from "./utils.js"
 import { createLogger } from "../utils/logging.js"
 import type { Logger } from "../types/common.js"
 
@@ -26,37 +26,36 @@ export class MerkleMountainRange {
 		}
 	}
 
-	// Adds a new leaf to the MMR and computes all intermediate nodes.
-	// @param payload - The raw data for the new leaf node to be added.
-	// @param leafIndex - The expected leaf index for the new leaf.
-	// @returns An array of CID and data pairs for leaf, all intermediate nodes, and the root
-	async addLeafWithTrail(leafIndex: number, payload: Uint8Array): Promise<MMRLeafAppendedTrail> {
+	/** Updates the peaks. A caller publishing blocks can collect the new leaf and merges in a trail. */
+	async addLeaf(leafIndex: number, payload: Uint8Array, trail?: MMRLeafAppendedTrail): Promise<void> {
 		if (this.leafCount !== leafIndex) throw new Error(`Expected leafIndex ${this.leafCount} but got ${leafIndex}`)
 
-		const trail: MMRLeafAppendedTrail = []
+		const leaf = await encodeBlock(payload)
+		trail?.push(leaf)
 
-		const { cid: leafCID, dagCborEncodedData: dagCborEncodedLeafData } = await encodeBlock(payload)
-		trail.push({ cid: leafCID, dagCborEncodedData: dagCborEncodedLeafData })
-
-		let newPeak = leafCID
+		let newPeak = leaf.cid
 		let height = 0
 
 		while ((this.leafCount >> height) & 1) {
 			const left = this.peaks.pop()
 			if (!left) throw new Error("MMR structure error: no peak to merge")
 
-			const { cid: merged, dagCborEncodedData } = await encodeBlock({ L: left, R: newPeak })
-			trail.push({ cid: merged, dagCborEncodedData })
+			const merged = await encodeBlock({ L: left, R: newPeak })
+			trail?.push(merged)
 
-			newPeak = merged
+			newPeak = merged.cid
 			height++
 		}
 
 		this.peaks.push(newPeak)
 		this.leafCount++
+	}
 
-		const peakBaggingInfo = await this.rootCIDWithTrail()
-		trail.push(...peakBaggingInfo.trail)
+	/** Returns the new leaf, its merge blocks, and any blocks needed to link the peaks into a root. */
+	async addLeafWithTrail(leafIndex: number, payload: Uint8Array): Promise<MMRLeafAppendedTrail> {
+		const trail: MMRLeafAppendedTrail = []
+		await this.addLeaf(leafIndex, payload, trail)
+		await getRootCIDFromPeaks(this.peaks, trail)
 
 		// Notify all subscribers
 		for (const cb of this.leafAppendedTrailSubscribers) {
@@ -79,27 +78,12 @@ export class MerkleMountainRange {
 	}> {
 		const trail: MMRLeafAppendedTrail = []
 
-		if (this.peaks.length === 0) {
-			return { root: NULL_CID, trail: [] }
-		}
-
-		if (this.peaks.length === 1) {
-			return { root: this.peaks[0], trail: [] }
-		}
-
-		let current = this.peaks[0]
-		for (let i = 1; i < this.peaks.length; i++) {
-			const { cid, dagCborEncodedData } = await encodeBlock({ L: current, R: this.peaks[i] })
-			trail.push({ cid, dagCborEncodedData })
-			current = cid
-		}
-
-		return { root: current, trail }
+		const root = await getRootCIDFromPeaks(this.peaks, trail)
+		return { root, trail }
 	}
 
 	async rootCID(): Promise<CID<unknown, 113, 27, 1>> {
-		const result = await this.rootCIDWithTrail()
-		return result.root
+		return getRootCIDFromPeaks(this.peaks)
 	}
 
 	async rootCIDAsBase32(): Promise<string> {

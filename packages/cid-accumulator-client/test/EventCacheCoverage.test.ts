@@ -70,8 +70,12 @@ describe("event cache coverage", { concurrency: false, timeout: 5000 }, () => {
 		const f = fixture(t)
 		const service = f.create()
 		await service.start()
+		const received: number[] = []
+		service.subscribe(record => received.push(record.leafIndex))
 		f.setHead(12)
-		await f.tick()
+		await Promise.all([f.tick(), f.tick()])
+		assert.deepEqual(received, [0, 1])
+		assert.equal(f.getLogs.mock.callCount(), 3)
 		service.stop()
 		const calls = f.getLogs.mock.callCount()
 		assert.deepEqual((await service.getLeafRecords(10, 12)).map(record => record.leafIndex), [0, 1])

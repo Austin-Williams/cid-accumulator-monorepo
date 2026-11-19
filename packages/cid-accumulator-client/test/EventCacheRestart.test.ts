@@ -82,6 +82,7 @@ function fixture(t: TestContext, lazyLoadEvents = true) {
 	}
 	return {
 		service,
+		contract,
 		storage,
 		account,
 		received,
@@ -122,13 +123,18 @@ describe("event cache restart catch-up", { concurrency: false, timeout: 5000 }, 
 		await f.service.start()
 		f.service.stop()
 		f.append(11)
-		f.append(14)
-		f.setHead(14)
+		f.append(1011)
+		f.setHead(1012)
+		const getBlock = f.contract.getBlock.bind(f.contract)
+		t.mock.method(f.contract, "getBlock", block => getBlock(block === "finalized" ? 1010 : block))
 		const restarted = f.createService()
 		const received: LeafRecord[] = []
 		restarted.subscribe((record) => received.push(record))
 		await restarted.start()
-		assert.equal(await f.cursor(), "14")
+		assert.equal(await f.cursor(), "1012")
+		assert.deepEqual(f.getLogs.mock.calls.map(call => call.arguments.slice(0, 2)), [
+			[11, 510], [511, 1010], [1011, 1011], [1012, 1012],
+		])
 		assert.deepEqual(
 			received.map((record) => record.leafIndex),
 			[0, 1]
