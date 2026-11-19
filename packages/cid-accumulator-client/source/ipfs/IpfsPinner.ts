@@ -1,13 +1,10 @@
 import { createLogger } from "../utils/logging.js"
-import { getRemotePinningServices, postIpfsBinary, verifyCIDAgainstDagCborEncodedData } from "./utils.js"
+import { getRemotePinningServices, postIpfsBinary, postIpfsEmpty, verifyCIDAgainstDagCborEncodedData } from "./utils.js"
 import { RemotePinningService } from "./RemotePinningService.js"
 
-import type { CID } from "./CID.js"
 import type { CIDDataPair } from "./types.js"
 import type { IpfsPinnerConfig } from "./IpfsPinner.types.js"
 import type { LifecycleComponent, RateLimiterOptions } from "../types/common.js"
-import type { Storage } from "../storage/interface.js"
-import type { EthereumAddress } from "../ethereum/EthereumAddress.js"
 
 /**
  * KuboIpfsPinner implements IpfsPinner using the Kubo (Go) IPFS HTTP API.
@@ -38,11 +35,9 @@ export class IpfsPinner implements LifecycleComponent {
 	private remotePinningServiceRateLimiterOptions: RateLimiterOptions
 	private readonly logger = createLogger("IpfsPinner")
 
-	private storage: Storage
 	private initialized: boolean = false
 
-	constructor(storage: Storage, config: Required<IpfsPinnerConfig>) {
-		this.storage = storage
+	constructor(config: Required<IpfsPinnerConfig>) {
 		this.baseUrl = config.baseUrl
 		this.remotePin = config.remotePin
 		this.remotePinningServiceRateLimiterOptions = config.remotePinningServiceRateLimiterOptions
@@ -53,14 +48,14 @@ export class IpfsPinner implements LifecycleComponent {
 	 * This will fetch and initialize all available remote pinning services if remotePin is enabled
 	 */
 	async init(): Promise<void> {
-		if (!this.remotePin) return
+		if (!this.remotePin || this.initialized) return
 		// Get list of remote pinning services
 		const services = await getRemotePinningServices(this.baseUrl)
 
 		// Create a RemotePinningService instance for each remote pinning service
 		for (const serviceName of services) {
 			if (this.remotePinningServices.has(serviceName)) continue
-			const service = new RemotePinningService(this.storage, {
+			const service = new RemotePinningService({
 				baseUrl: this.baseUrl,
 				serviceName,
 				rateLimiterOptions: this.remotePinningServiceRateLimiterOptions,
@@ -85,19 +80,15 @@ export class IpfsPinner implements LifecycleComponent {
 		})
 	}
 
-	/**
-	 * PUT dag-cbor-encoded-data in the node and PIN the CID. Throw if the CID does not match what was expected.
-	 * See: https://docs.ipfs.tech/reference/kubo/rpc/#api-v0-pin-remote-add
-	 */
-	async putAndPin({ cid, dagCborEncodedData }: CIDDataPair, account: EthereumAddress): Promise<void> {
-		//this.logger.log(`Pinning CID ${cid.toString()} for account ${account.toString()}`)
+	/** Upload a verified block. Its reachable roots control how long Kubo retains it. */
+	async putBlock({ cid, dagCborEncodedData }: CIDDataPair): Promise<void> {
 		if (!(await verifyCIDAgainstDagCborEncodedData(dagCborEncodedData, cid))) {
 			throw new Error(`[KuboIpfsPinner] Input CID ${cid.toString()} does not match dag-cbor-encoded-data`)
 		}
 		const res = await postIpfsBinary(
 			this.baseUrl,
 			"block/put",
-			{ format: "dag-cbor", mhtype: "keccak-256", "cid-version": "1", pin: "true" },
+			{ "cid-codec": "dag-cbor", mhtype: "keccak-256", pin: "false", arg: undefined },
 			dagCborEncodedData
 		)
 
@@ -109,25 +100,69 @@ export class IpfsPinner implements LifecycleComponent {
 		if (returnedCID !== cid.toString()) {
 			throw new Error(`[IpfsPinner] Mismatched CID returned from IPFS: expected ${cid.toString()}, got ${returnedCID}`)
 		}
-		await this.handleRemotePinning(cid, account)
 	}
 
-	/**
-	 * Handle pinning to remote services
-	 * @param cid - CID to pin
-	 * @param account - Optional account identifier to use in the name for the pin
-	 */
-	private async handleRemotePinning(cid: CID<unknown, 113, 27, 1>, account: EthereumAddress): Promise<void> {
-		if (!this.remotePin) return
-		if (!this.initialized) await this.init()
-		if (this.remotePinningServices.size === 0) return
+	/** Discover our root pins on all destinations, including partially completed operations. */
+	async listRootPins(name: string): Promise<{ local: Set<string>; all: Set<string> }> {
+		await this.init()
+		const pins = await this.localPins("recursive", { name, arg: undefined })
+		// Kubo's local name filter is a substring match.
+		const local = new Set(Object.keys(pins).filter(cid => pins[cid].Name === name))
+		const all = new Set(local)
+		for (const service of this.remotePinningServices.values()) {
+			for (const pin of await service.list(name)) all.add(pin.Cid)
+		}
+		return { local, all }
+	}
 
-		await Promise.all(
-			Array.from(this.remotePinningServices.entries()).map(async ([serviceName, service]) => {
-				const result = await service.pin(cid, `cid-accumulator-${account}`)
-				// Retain failed services so a later retry cannot silently skip a configured destination.
-				if (!result.success) throw new Error(`[IpfsPinner] Remote pinning failed for service '${serviceName}'`)
-			})
-		)
+	async pinRoot(cid: string, name: string): Promise<void> {
+		// Kubo has only one local pin per CID. Adding it again would replace its name.
+		const recursive = await this.localPin(cid, "recursive")
+		if (recursive?.Name && recursive.Name !== name) {
+			throw new Error(`Root ${cid} already has a recursive pin named '${recursive.Name}' on this Kubo node`)
+		}
+		// An unnamed recursive pin (including earlier seeder pins) already protects the root.
+		if (!recursive) {
+			if (await this.localPin(cid, "direct")) {
+				throw new Error(`Cannot recursively pin ${cid} without replacing an existing direct pin`)
+			}
+			const result = await postIpfsEmpty(this.baseUrl, "pin/add", { arg: cid, name, recursive: "true" })
+			if (!Array.isArray(result?.Pins) || !result.Pins.includes(cid)) throw new Error(`Kubo did not confirm pinning ${cid}`)
+		}
+		await this.init()
+		for (const service of this.remotePinningServices.values()) await service.pin(cid, name)
+	}
+
+	async unpinRoot(cid: string, name: string): Promise<void> {
+		await this.init()
+		for (const service of this.remotePinningServices.values()) await service.unpin(cid, name)
+		const pin = await this.localPin(cid, "recursive")
+		if (pin?.Name === name) {
+			const result = await postIpfsEmpty(this.baseUrl, "pin/rm", { arg: cid, recursive: "true" })
+			if (!Array.isArray(result?.Pins) || !result.Pins.includes(cid)) throw new Error(`Kubo did not confirm unpinning ${cid}`)
+		}
+	}
+
+	private async localPin(cid: string, type: "recursive" | "direct"): Promise<{ Name?: string } | undefined> {
+		try {
+			const pins = await this.localPins(type, { arg: cid, name: undefined })
+			return pins[cid]
+		} catch (error) {
+			// pin/ls with a CID returns an error if it has no pin of the requested type.
+			if (error instanceof Error && error.message.includes(`path '${cid}' is not pinned`)) return undefined
+			throw error
+		}
+	}
+
+	private async localPins(
+		type: "recursive" | "direct", filter: { arg?: string; name?: string }
+	): Promise<Record<string, { Type: string; Name?: string }>> {
+		const result = await postIpfsEmpty(this.baseUrl, "pin/ls", { ...filter, type, names: "true", stream: "false" })
+		// Kubo omits Keys when there are no matches.
+		if (result && typeof result === "object" && !Array.isArray(result)) {
+			if (Object.keys(result).length === 0) return {}
+			if (result.Keys && typeof result.Keys === "object" && !Array.isArray(result.Keys)) return result.Keys
+		}
+		throw new Error("[IpfsPinner] Invalid pin/ls response")
 	}
 }

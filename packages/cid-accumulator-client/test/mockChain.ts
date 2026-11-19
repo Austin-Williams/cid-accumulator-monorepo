@@ -19,6 +19,7 @@ export async function initializeChain(storage: Storage): Promise<void> {
 }
 
 export function mockChain(t: TestContext, contract: AccumulatorContract, storage?: Storage): void {
+	t.mock.method(contract, "getChainId", async () => 1n)
 	t.mock.method(contract, "getBlockNumber", async () => 100)
 	t.mock.method(contract, "getBlock", async (block: number | "latest" | "finalized") => {
 		if (storage) await initializeChain(storage)

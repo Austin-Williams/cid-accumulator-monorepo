@@ -2,7 +2,6 @@ import assert from "node:assert/strict"
 import { describe, test } from "node:test"
 import type { TestContext } from "node:test"
 import { defaultIpfsPinnerConfig, defaultLightClientIpfsResolverConfig } from "../source/config/defaultConfig.js"
-import { EthereumAddress } from "../source/ethereum/EthereumAddress.js"
 import { IpfsPinner } from "../source/ipfs/IpfsPinner.js"
 import { IpfsResolver } from "../source/ipfs/IpfsResolver.js"
 import { InMemoryAdapter } from "../source/storage/adapters/InMemoryAdapter.js"
@@ -24,7 +23,7 @@ async function fixture(t: TestContext, remotePin = false) {
 	const differentBlock = await encodeBlock(Uint8Array.of(2))
 	const storage = new InMemoryAdapter()
 	const resolver = new IpfsResolver(storage, defaultLightClientIpfsResolverConfig)
-	const pinner = new IpfsPinner(storage, {
+	const pinner = new IpfsPinner({
 		...defaultIpfsPinnerConfig,
 		baseUrl:
 			"https://ipfs.example.test/proxy/api/v0/?token=a%2Bb%2Fc%3D&pin=false&arg=stale-cid&service=stale-service&status=failed",
@@ -47,7 +46,7 @@ async function fixture(t: TestContext, remotePin = false) {
 		pinner,
 		fetch,
 		key: `ipfs:block:${block.cid}`,
-		account: new EthereumAddress("0x" + "11".repeat(20)),
+		pinName: "cid-accumulator-test",
 	}
 }
 
@@ -88,6 +87,8 @@ describe("CID verification before reading or pinning blocks", { concurrency: fal
 	test("pinning verified bytes requires CID confirmation and succeeds on retry", async (t) => {
 		const f = await fixture(t, true)
 		let localCID = f.block.cid.toString()
+		const localPins: Record<string, { Type: string; Name: string }> = {}
+		const remotePins = new Set<string>()
 		let remoteAdds = 0
 		let remoteAvailable = true
 		f.fetch.mock.mockImplementation(async (input) => {
@@ -95,17 +96,38 @@ describe("CID verification before reading or pinning blocks", { concurrency: fal
 			switch (url.pathname) {
 				case "/proxy/api/v0/block/put":
 					return Response.json({ Key: localCID })
+				case "/proxy/api/v0/pin/ls": {
+					const cid = url.searchParams.get("arg")
+					if (!cid) return Response.json({ Keys: localPins })
+					if (localPins[cid]?.Type === url.searchParams.get("type")) return Response.json({ Keys: { [cid]: localPins[cid] } })
+					return Response.json({ Message: `path '${cid}' is not pinned` }, { status: 500 })
+				}
+				case "/proxy/api/v0/pin/add":
+					assert.equal(url.searchParams.get("recursive"), "true")
+					localPins[localCID] = { Type: "recursive", Name: f.pinName }
+					return Response.json({ Pins: [localCID] })
+				case "/proxy/api/v0/pin/rm": {
+					const cid = url.searchParams.get("arg")!
+					delete localPins[cid]
+					return Response.json({ Pins: [cid] })
+				}
 				case "/proxy/api/v0/pin/remote/service/ls":
 					return Response.json({ RemoteServices: [{ Service: "test-pinner" }] })
 				case "/proxy/api/v0/pin/remote/ls":
-					return Response.json({})
+					return new Response(Array.from(remotePins, cid =>
+						JSON.stringify({ Cid: cid, Name: f.pinName, Status: "queued" })).join("\n"))
+				case "/proxy/api/v0/pin/remote/rm":
+					assert.equal(url.searchParams.get("name"), f.pinName)
+					assert.deepEqual(url.searchParams.getAll("status"), ["pinned", "pinning", "queued", "failed"])
+					remotePins.delete(url.searchParams.get("cid")!)
+					return new Response()
 				case "/proxy/api/v0/pin/remote/add":
 					remoteAdds++
 					assert.deepEqual(url.searchParams.getAll("arg"), [localCID])
 					assert.deepEqual(url.searchParams.getAll("service"), ["test-pinner"])
-					return remoteAdds === 1 || !remoteAvailable
-						? new Response("Temporarily unavailable", { status: 503 })
-						: Response.json({ Cid: localCID, Status: "queued" })
+					if (remoteAdds === 1 || !remoteAvailable) return new Response("Temporarily unavailable", { status: 503 })
+					remotePins.add(localCID)
+					return Response.json({ Cid: localCID, Name: f.pinName, Status: "queued" })
 				default:
 					throw new Error(`Unexpected HTTP request: ${url}`)
 			}
@@ -113,9 +135,10 @@ describe("CID verification before reading or pinning blocks", { concurrency: fal
 		f.fetch.mock.mockImplementationOnce(
 			async () => new Response("<html>Sign in</html>", { headers: { "Content-Type": "text/html" } })
 		)
-		await assert.rejects(f.pinner.putAndPin(f.block, f.account), /Invalid block\/put response/)
+		await assert.rejects(f.pinner.putBlock(f.block), /Invalid block\/put response/)
 		assert.equal(f.fetch.mock.callCount(), 1)
-		await f.pinner.putAndPin(f.block, f.account)
+		await f.pinner.putBlock(f.block)
+		await f.pinner.pinRoot(localCID, f.pinName)
 		assert.equal(remoteAdds, 2, "A transient remote failure must be retried before reporting success")
 		const requests = f.fetch.mock.calls.map(({ arguments: [input] }) => {
 			assert.ok(input)
@@ -126,12 +149,12 @@ describe("CID verification before reading or pinning blocks", { concurrency: fal
 		assert.ok(statusRequest)
 		assert.equal(statusRequest.searchParams.get("cid"), localCID)
 		assert.deepEqual(statusRequest.searchParams.getAll("service"), ["test-pinner"])
-		assert.deepEqual(statusRequest.searchParams.getAll("status"), ["pinned", "pinning", "queued"])
+		assert.deepEqual(statusRequest.searchParams.getAll("status"), ["pinned", "pinning", "queued", "failed"])
 		const [input, init] = f.fetch.mock.calls[1].arguments
 		assert.ok(input)
 		const url = new URL(input instanceof Request ? input.url : input.toString())
 		assert.equal(url.pathname, "/proxy/api/v0/block/put")
-		assert.deepEqual(url.searchParams.getAll("pin"), ["true"])
+		assert.deepEqual(url.searchParams.getAll("pin"), ["false"])
 		assert.deepEqual(url.searchParams.getAll("mhtype"), ["keccak-256"])
 		assert.equal(init?.method, "POST")
 		assert.ok(init.body instanceof FormData)
@@ -141,18 +164,30 @@ describe("CID verification before reading or pinning blocks", { concurrency: fal
 
 		localCID = f.differentBlock.cid.toString()
 		remoteAvailable = false
-		await assert.rejects(f.pinner.putAndPin(f.differentBlock, f.account))
+		await f.pinner.putBlock(f.differentBlock)
+		await assert.rejects(f.pinner.pinRoot(localCID, f.pinName))
 		assert.equal(remoteAdds, 5, "Remote failure must reach the caller after exhausting both retries")
 		remoteAvailable = true
-		await f.pinner.putAndPin(f.differentBlock, f.account)
+		await f.pinner.pinRoot(localCID, f.pinName)
 		assert.equal(remoteAdds, 6, "Exhaustion must allow a later attempt to recover")
+
+		const first = f.block.cid.toString()
+		assert.deepEqual((await f.pinner.listRootPins(f.pinName)).all, new Set([first, localCID]))
+		await f.pinner.unpinRoot(first, f.pinName)
+		assert.deepEqual((await f.pinner.listRootPins(f.pinName)).all, new Set([localCID]))
+		assert.deepEqual(remotePins, new Set([localCID]))
+
+		localPins[first] = { Type: "recursive", Name: "another-accumulator" }
+		await assert.rejects(f.pinner.pinRoot(first, f.pinName), /another-accumulator/)
+		await f.pinner.unpinRoot(first, f.pinName)
+		assert.equal(localPins[first].Name, "another-accumulator")
 	})
 
 	for (const remotePin of [false, true]) {
 		test(`a mismatched CID/data pair is rejected before any upload when remotePin=${remotePin}`, async (t) => {
 			const f = await fixture(t, remotePin)
 			const invalid = { cid: f.block.cid, dagCborEncodedData: f.differentBlock.dagCborEncodedData }
-			await assert.rejects(f.pinner.putAndPin(invalid, f.account), /does not match dag-cbor-encoded-data/)
+			await assert.rejects(f.pinner.putBlock(invalid), /does not match dag-cbor-encoded-data/)
 			assert.equal(f.fetch.mock.callCount(), 0)
 		})
 	}

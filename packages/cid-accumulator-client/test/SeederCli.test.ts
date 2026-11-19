@@ -82,6 +82,7 @@ describe("seeder CLI configuration", () => {
 				ipfsGatewayUrl,
 				ipfsPinnerBaseUrl,
 				accumulatorContractAddress: contractAddress,
+				retainedRoots: "150",
 				remotePin: "true",
 			}
 			const args = Object.entries(options).flatMap(([key, value]) =>
@@ -94,6 +95,7 @@ describe("seeder CLI configuration", () => {
 			assert.equal(config.ipfsResolverConfig.gatewayUrl, ipfsGatewayUrl)
 			assert.equal(config.ipfsPinnerConfig.baseUrl, ipfsPinnerBaseUrl)
 			assert.equal(config.accumulatorContractConfig.accumulatorContractAddress, contractAddress)
+			assert.equal(config.retainedRoots, 150)
 			assert.equal(config.ipfsPinnerConfig.remotePin, true)
 			assert.deepEqual(
 				config.accumulatorContractConfig.rateLimiterOptions,
@@ -110,6 +112,7 @@ describe("seeder CLI configuration", () => {
 	test("omitted options keep the default database path and URLs", async () => {
 		const config = await runCli([])
 		assert.equal(config.nodeDbPath, defaultSeederConfig.nodeDbPath)
+		assert.equal(config.retainedRoots, 128)
 		assert.equal(config.browserDbName, "cid-accumulator")
 		assert.equal(
 			config.accumulatorContractConfig.ethereumHttpRpcUrl,

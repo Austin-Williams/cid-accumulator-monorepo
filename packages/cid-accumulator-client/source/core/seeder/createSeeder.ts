@@ -30,7 +30,9 @@ export async function createSeeder(config: SeederConfigUserInput): Promise<Seede
 	const eventCacheService = new EventCacheService(storage, accumulatorContract, mergedConfig.eventCacheServiceConfig)
 	const ipfsResolver = new IpfsResolver(storage, mergedConfig.ipfsResolverConfig)
 	const dataClient = new LightClient({ storage, accumulatorContract, eventCacheService, ipfsResolver })
-	const ipfsPinner = new IpfsPinner(storage, mergedConfig.ipfsPinnerConfig)
-	const pinningService = new PinningService(storage, accumulatorContract, dataClient, ipfsPinner, mergedConfig.syncCheckIntervalMs)
+	const ipfsPinner = new IpfsPinner(mergedConfig.ipfsPinnerConfig)
+	const pinningService = new PinningService(
+		storage, accumulatorContract, dataClient, ipfsPinner, mergedConfig.syncCheckIntervalMs, mergedConfig.retainedRoots
+	)
 	return new Seeder({ storage, accumulatorContract, eventCacheService, dataClient, pinningService })
 }

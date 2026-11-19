@@ -1,3 +1,4 @@
+import { mockRootPins } from "./mockRootPins.js"
 import { mockChain } from "./mockChain.js"
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
@@ -82,13 +83,13 @@ function fixture(t: TestContext) {
 	t.mock.method(resolver, "fullyResolveCID", async () => undefined)
 	const client = new LightClient({ storage, accumulatorContract: contract, eventCacheService: events, ipfsResolver: resolver })
 	const subscriptions = t.mock.method(client, "subscribe")
-	const pinner = new IpfsPinner(storage, defaultIpfsPinnerConfig)
-	const pinned = new Set<string>()
-	const pins = t.mock.method(pinner, "putAndPin", async (pair: CIDDataPair, pinAccount: EthereumAddress) => {
-		assert.equal(pinAccount.toString(), account.toString())
-		pinned.add(pair.cid.toString())
+	const pinner = new IpfsPinner(defaultIpfsPinnerConfig)
+	const roots = mockRootPins(t, pinner)
+	const uploaded = new Set<string>()
+	const pins = t.mock.method(pinner, "putBlock", async (pair: CIDDataPair) => {
+		uploaded.add(pair.cid.toString())
 	})
-	const pinning = new PinningService(storage, contract, client, pinner, 67890)
+	const pinning = new PinningService(storage, contract, client, pinner, 67890, 2)
 	const seeder = new Seeder({
 		storage,
 		accumulatorContract: contract,
@@ -138,7 +139,8 @@ function fixture(t: TestContext) {
 		assert.equal((await mmr.rootCID()).toString(), (await chain.rootCID()).toString())
 		assert.equal(await client.getHighestIndex(), chain.leafCount - 1)
 		assert.equal(client.completedInitialSync, true)
-		for (const pair of trails.flat()) assert.ok(pinned.has(pair.cid.toString()), `Missing pin: ${pair.cid}`)
+		for (const pair of trails.flat()) assert.ok(uploaded.has(pair.cid.toString()), `Missing block: ${pair.cid}`)
+		assert.deepEqual(roots, new Set(trails.slice(-2).map(trail => trail.at(-1)!.cid.toString())))
 	}
 	return {
 		seeder,

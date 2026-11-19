@@ -18,6 +18,8 @@ export interface SeederConfig extends StorageConfig {
 	eventCacheServiceConfig: Required<EventCacheServiceConfig>
 	ipfsResolverConfig: Required<IpfsResolverConfig>
 	ipfsPinnerConfig: Required<IpfsPinnerConfig>
+	/** Number of consecutive accumulator roots to keep recursively pinned. */
+	retainedRoots: number
 	syncCheckIntervalMs: number
 }
 

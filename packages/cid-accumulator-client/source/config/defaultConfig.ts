@@ -105,6 +105,7 @@ export const defaultSeederConfig = {
 	eventCacheServiceConfig: defaultSeederEventCacheServiceConfig,
 	ipfsResolverConfig: defaultSeederIpfsResolverConfig,
 	ipfsPinnerConfig: defaultIpfsPinnerConfig,
+	retainedRoots: 128,
 	syncCheckIntervalMs: defaultSyncCheckIntervalMs,
 } satisfies Omit<SeederConfig, "accumulatorContractConfig"> & {
 	accumulatorContractConfig: Omit<AccumulatorContractConfig, "accumulatorContractAddress">

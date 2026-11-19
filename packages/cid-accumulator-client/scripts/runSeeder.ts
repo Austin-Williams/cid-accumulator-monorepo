@@ -23,6 +23,9 @@ export async function runSeeder() {
 	if (cliArgs.nodeDbPath) {
 		customConfig.nodeDbPath = cliArgs.nodeDbPath
 	}
+	if (cliArgs.retainedRoots !== undefined) {
+		customConfig.retainedRoots = cliArgs.retainedRoots
+	}
 	if (cliArgs.remotePin) {
 		customConfig.ipfsPinnerConfig = { ...customConfig.ipfsPinnerConfig, remotePin: cliArgs.remotePin }
 	}
@@ -58,6 +61,7 @@ export async function runSeeder() {
 // Supported args:
 // --accumulatorContractAddress (required string)
 // --remotePin (boolean)
+// --retainedRoots (positive integer)
 // --ethereumHttpRpcUrl (string)
 // --ipfsGatewayUrl (string)
 // --ipfsPinnerBaseUrl (string)
@@ -66,6 +70,7 @@ export async function runSeeder() {
 interface CliArgs {
 	accumulatorContractAddress?: string
 	remotePin?: boolean
+	retainedRoots?: number
 	ethereumHttpRpcUrl?: string
 	ipfsGatewayUrl?: string
 	ipfsPinnerBaseUrl?: string
@@ -91,6 +96,10 @@ function parseCliArgs(): CliArgs {
 				case 'remotePin':
 					const remotePinValue = value ?? process.argv[++i];
 					args.remotePin = remotePinValue === 'true' || remotePinValue === '1';
+					break;
+
+				case 'retainedRoots':
+					args.retainedRoots = Number(value ?? process.argv[++i]);
 					break;
 
 				case 'ethereumHttpRpcUrl':

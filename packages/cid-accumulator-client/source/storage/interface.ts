@@ -10,9 +10,6 @@ export interface StorageConfig {
 /**
  * DB schema within one chain-ID/consumer-contract scope.
  * AccumulatorStorageAdapter prefixes the keys below and gives each scope its own coordination identity.
- *	IpfsPinner storage:
- * - "ipfs:remote-pinned:service:{serviceName}:cid:{cidString}" - boolean indicating whether the CID has been remote pinned at the service
- *
  * IpfsResolver storage:
  * - "ipfs:block:{cidString}" - dagCborEncodedData
  *

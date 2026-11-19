@@ -1,3 +1,4 @@
+import { mockRootPins } from "./mockRootPins.js"
 import { mockChain } from "./mockChain.js"
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
@@ -62,17 +63,18 @@ async function fixture(t: TestContext, pause: "sync" | "pin") {
 			peaks: chain.peaks.map((cid, index) => ({ cid, height: heights[index] })),
 		}
 	})
-	const pinner = new IpfsPinner(storage, defaultIpfsPinnerConfig)
+	const pinner = new IpfsPinner(defaultIpfsPinnerConfig)
 	t.mock.method(pinner, "init", async () => {})
-	const pinned = new Set<string>()
-	t.mock.method(pinner, "putAndPin", async (pair: CIDDataPair) => {
+	const roots = mockRootPins(t, pinner)
+	const uploaded = new Set<string>()
+	t.mock.method(pinner, "putBlock", async (pair: CIDDataPair) => {
 		if (pause === "pin") {
 			entered.resolve()
 			await release.promise
 		}
-		pinned.add(pair.cid.toString())
+		uploaded.add(pair.cid.toString())
 	})
-	const service = new PinningService(storage, contract, client, pinner, 60000)
+	const service = new PinningService(storage, contract, client, pinner, 60000, 2)
 	t.after(() => {
 		release.resolve()
 		service.stop()
@@ -96,10 +98,11 @@ async function fixture(t: TestContext, pause: "sync" | "pin") {
 	async function assertPinned() {
 		assert.equal(service.mmr.leafCount, chain.leafCount)
 		assert.equal((await service.mmr.rootCID()).toString(), (await chain.rootCID()).toString())
-		assert.deepEqual(pinned, expected)
+		assert.deepEqual(uploaded, expected)
+		assert.equal(roots.has(await chain.rootCIDAsBase32()), true)
 	}
 	await append(1)
-	return { service, client, entered, release, append, tick, assertPinned, pinned, subscriptions, intervals }
+	return { service, client, entered, release, append, tick, assertPinned, uploaded, subscriptions, intervals }
 }
 
 describe("pinning startup", { concurrency: false, timeout: 5000 }, () => {
@@ -134,7 +137,7 @@ describe("pinning startup", { concurrency: false, timeout: 5000 }, () => {
 			await starting
 		}
 		assert.equal(f.service.mmr.leafCount, 0)
-		assert.equal(f.pinned.size, 0)
+		assert.equal(f.uploaded.size, 0)
 		assert.equal(f.intervals.mock.callCount(), 0)
 	})
 })

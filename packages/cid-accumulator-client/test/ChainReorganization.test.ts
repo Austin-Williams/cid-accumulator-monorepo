@@ -1,3 +1,4 @@
+import { mockRootPins } from "./mockRootPins.js"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { TestContext } from "node:test"
@@ -159,17 +160,25 @@ async function fixture(t: TestContext, startEmpty = false) {
 	await client.start()
 	notifications.length = 0
 	async function startPinning() {
-		const pinner = new IpfsPinner(storage, defaultIpfsPinnerConfig)
+		t.mock.method(contract, "getChainId", async () => 1n)
+		const pinner = new IpfsPinner(defaultIpfsPinnerConfig)
+		const roots = mockRootPins(t, pinner)
 		t.mock.method(pinner, "init", async () => {})
-		t.mock.method(pinner, "putAndPin", async () => {})
-		const pinning = new PinningService(storage, contract, client, pinner, 67890)
+		t.mock.method(pinner, "putBlock", async () => {})
+		const pinning = new PinningService(storage, contract, client, pinner, 67890, 2)
 		t.after(() => {
 			pinning.stop()
 		})
 		await pinning.start()
 		return async () => {
 			const deadline = Date.now() + 1000
-			while (pinning.mmr.leafCount !== tip.payloads.length) {
+			const expectedRoots = new Set<string>()
+			let branch = tip
+			while (branch.payloads.length && expectedRoots.size < 2) {
+				if (branch.logs.length) expectedRoots.add((await getRootCIDFromPeaks(branch.state.peaks.map(peak => peak.cid))).toString())
+				branch = history.get(branch.block.parentHash)!
+			}
+			while (pinning.mmr.leafCount !== tip.payloads.length || roots.size !== expectedRoots.size || [...expectedRoots].some(root => !roots.has(root))) {
 				assert.ok(Date.now() < deadline, "Pinning should catch up to the replacement branch")
 				await setImmediate()
 			}

@@ -269,7 +269,7 @@ Run `npm ci` from the repository root to install all workspace dependencies usin
 You can also run it with custom options. E.g.:
 
 ```bash
-npm run seeder --workspace cid-accumulator-client -- --accumulatorContractAddress=YOUR_CONTRACT_ADDRESS --remotePin=true --ethereumHttpRpcUrl="https://mainnet.infura.io/v3/<YourInfuraApiKey>"
+npm run seeder --workspace cid-accumulator-client -- --accumulatorContractAddress=YOUR_CONTRACT_ADDRESS --retainedRoots=150 --remotePin=true --ethereumHttpRpcUrl="https://mainnet.infura.io/v3/<YourInfuraApiKey>"
 ```
 
 **Available options (contract address required; other defaults shown):**
@@ -278,7 +278,10 @@ npm run seeder --workspace cid-accumulator-client -- --accumulatorContractAddres
 The Ethereum address of your deployed accumulator contract (required)
 --accumulatorContractAddress=YOUR_CONTRACT_ADDRESS
 
-Enable remote pinning (set to true to pin all CIDs to all remote pinning services set up on your IPFS node).
+Number of recent accumulator roots to keep pinned (positive integer)
+--retainedRoots=128
+
+Enable remote pinning (set to true to keep the same roots pinned on each remote pinning service set up on your IPFS node).
 Remote pinning is ideal for user UX and UI performance, but it usually costs money, so the default is false.
 --remotePin=false
 
@@ -312,7 +315,7 @@ const seeder = await createSeeder({
   },
 })
 
-// Start the seeder. It will sync and pin all accumulator data to IPFS
+// Start the seeder. It will sync and pin the latest accumulator roots to IPFS
 await seeder.start()
 
 // Later, when you're done
@@ -359,6 +362,7 @@ const config: SeederConfigUserInput = {
       baseDelay: 100,
       capDelay: 10000,},
   },
+  retainedRoots: 128,
   syncCheckIntervalMs: 60000 // how often to check the pinned accumulator's root and retry pinning
 }
 

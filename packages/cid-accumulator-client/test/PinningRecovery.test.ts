@@ -1,3 +1,4 @@
+import { mockRootPins } from "./mockRootPins.js"
 import { mockChain } from "./mockChain.js"
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
@@ -52,7 +53,7 @@ function fixture(t: TestContext) {
 	const client = new DataClient({ storage, accumulatorContract: contract, eventCacheService: events, ipfsResolver: resolver })
 	client.completedInitialSync = true
 	const subscriptions = t.mock.method(client, "subscribe")
-	const pinner = new IpfsPinner(storage, defaultIpfsPinnerConfig)
+	const pinner = new IpfsPinner(defaultIpfsPinnerConfig)
 	const chain = new MerkleMountainRange()
 	t.mock.method(contract, "getCIDAccumulatorState", async () => {
 		const heights = [...chain.leafCount.toString(2)].flatMap((bit, index, bits) =>
@@ -70,15 +71,15 @@ function fixture(t: TestContext) {
 		}
 	})
 	const attempts: string[] = []
-	const pinned = new Set<string>()
+	const roots = mockRootPins(t, pinner)
+	const uploaded = new Set<string>()
 	let pinBehavior: (pair: CIDDataPair) => Promise<void> = async () => {}
-	t.mock.method(pinner, "putAndPin", async (pair: CIDDataPair, pinAccount: EthereumAddress) => {
-		assert.equal(pinAccount.toString(), account.toString())
+	t.mock.method(pinner, "putBlock", async (pair: CIDDataPair) => {
 		attempts.push(pair.cid.toString())
 		await pinBehavior(pair)
-		pinned.add(pair.cid.toString())
+		uploaded.add(pair.cid.toString())
 	})
-	const service = new PinningService(storage, contract, client, pinner, 60000)
+	const service = new PinningService(storage, contract, client, pinner, 60000, 2)
 	t.after(() => service.stop())
 	const trails: MMRLeafAppendedTrail[] = []
 	async function append(payload: Uint8Array, notify = false) {
@@ -101,7 +102,8 @@ function fixture(t: TestContext) {
 	async function assertFullyPinned() {
 		assert.equal(liveMMR().leafCount, chain.leafCount)
 		assert.equal((await liveMMR().rootCID()).toString(), (await chain.rootCID()).toString())
-		for (const pair of trails.flat()) assert.ok(pinned.has(pair.cid.toString()), `Missing pin: ${pair.cid}`)
+		for (const pair of trails.flat()) assert.ok(uploaded.has(pair.cid.toString()), `Missing block: ${pair.cid}`)
+		assert.deepEqual(roots, new Set(trails.slice(-2).map(trail => trail.at(-1)!.cid.toString())))
 	}
 	return {
 		service,
@@ -110,7 +112,7 @@ function fixture(t: TestContext) {
 		chain,
 		trails,
 		attempts,
-		pinned,
+		uploaded,
 		subscriptions,
 		errors,
 		append,
@@ -132,7 +134,7 @@ describe("pinning failure recovery", { concurrency: false, timeout: 5000 }, () =
 		})
 		await f.service.start()
 		assert.equal(f.liveMMR().leafCount, 0)
-		assert.equal(f.pinned.size, 0)
+		assert.equal(f.uploaded.size, 0)
 		assert.equal(f.subscriptions.mock.callCount(), 1)
 		assert.equal(await f.service.verifyRootCIDs(), false)
 
@@ -158,8 +160,8 @@ describe("pinning failure recovery", { concurrency: false, timeout: 5000 }, () =
 		assert.equal(f.liveMMR().leafCount, 3)
 		assert.equal((await f.liveMMR().rootCID()).toString(), previousRoot)
 		assert.equal(f.liveMMR().peaks.length, 2)
-		assert.ok(f.pinned.has(f.trails[3][0].cid.toString()))
-		assert.equal(f.pinned.has(failedCID), false)
+		assert.ok(f.uploaded.has(f.trails[3][0].cid.toString()))
+		assert.equal(f.uploaded.has(failedCID), false)
 		assert.equal(await f.service.verifyRootCIDs(), false)
 
 		let committedLeaves = 0
