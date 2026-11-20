@@ -42,7 +42,7 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 		bytes32 root = MerkleMountainRangeLib.bagPeaks({
 			peakCount: state.merkleMountainRangeMetaBits.getPeakCount(),
 			peaks: state.peaks,
-			hashPair: DagCborDigestLib.encodeLinkNode,
+			hashFunction: DagCborDigestLib.encodeLinkNode,
 			emptyRoot: EMPTY_ROOT_DIGEST
 		});
 		return root.encodeCidString();
@@ -59,7 +59,7 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 			leafHash: leafHash,
 			leafCount: previousMetaBits.getLeafCount(),
 			peakCount: previousMetaBits.getPeakCount(),
-			hashPair: DagCborDigestLib.encodeLinkNode
+			hashFunction: DagCborDigestLib.encodeLinkNode
 		});
 
 		_emitDataAppended(previousMetaBits, payload, mergeLeftHashes);
