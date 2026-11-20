@@ -13,7 +13,7 @@ pragma solidity 0.8.38;
  * reducing gas usage by packing everything into a single uint256.
  */
 
-/// @notice Library for packed MMR metadata bit manipulations.
+/// @notice Library for packed MerkleMountainRange metadata bit manipulations.
 library MetaBitsLib {
 	uint256 internal constant PEAK_COUNT_OFFSET = 160;
 	uint256 internal constant PEAK_COUNT_MASK = 0x1F;
