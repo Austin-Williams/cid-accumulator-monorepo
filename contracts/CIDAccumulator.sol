@@ -70,7 +70,7 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 		);
 	}
 
-	/// @dev Emits the standard ABI encoding using temporary memory; no buffer escapes.
+	/// @dev Emits the DataAppended event.
 	function _emitDataAppended(uint256 packedBits, bytes32 payload, bytes32[] memory mergeLeftHashes) private {
 		bytes32 eventTopic = DataAppendedToCIDAccumulator.selector;
 		assembly ("memory-safe") {
