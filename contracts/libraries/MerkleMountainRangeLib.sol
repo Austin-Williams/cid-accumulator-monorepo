@@ -4,7 +4,7 @@ pragma solidity 0.8.38;
 import {DagCborDigestLib} from "./DagCborDigestLib.sol";
 
 /// @notice Library for MMR merge operations: counting carries, merging nodes, and bagging peaks.
-library MmrLib {
+library MerkleMountainRangeLib {
 	/// @notice Computes how many merges (carries) will occur for a given leaf index.
 	/// @param leafIndex Index of the leaf appended (0-based).
 	/// @return count Number of merge steps.

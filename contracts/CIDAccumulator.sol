@@ -4,14 +4,14 @@ pragma solidity 0.8.38;
 import {ICIDAccumulator} from "./interfaces/ICIDAccumulator.sol";
 import {DagCborDigestLib} from "./libraries/DagCborDigestLib.sol";
 import {MetaBitsLib} from "./libraries/MetaBitsLib.sol";
-import {MmrLib} from "./libraries/MmrLib.sol";
+import {MerkleMountainRangeLib} from "./libraries/MerkleMountainRangeLib.sol";
 import {CidLib} from "./libraries/CidLib.sol";
 
 /// @title CIDAccumulator
 /// @notice An append-only CID accumulator.
 abstract contract CIDAccumulator is ICIDAccumulator {
 	using MetaBitsLib for uint256;
-	using MmrLib for uint256;
+	using MerkleMountainRangeLib for uint256;
 	using CidLib for bytes32;
 
 	/// @custom:storage-location erc7201:cid-accumulator.storage.CIDAccumulator
@@ -40,7 +40,7 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 	/// @inheritdoc ICIDAccumulator
 	function getCIDAccumulatorRootCIDString() external view override returns (string memory) {
 		CIDAccumulatorStorage storage state = _getAccumulatorStorage();
-		bytes32 root = MmrLib.bagPeaks(state.mmrMetaBits.getPeakCount(), state.peaks);
+		bytes32 root = MerkleMountainRangeLib.bagPeaks(state.mmrMetaBits.getPeakCount(), state.peaks);
 		return root.encodeCidString();
 	}
 
@@ -59,7 +59,7 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 		for (uint256 i; i < numMerges; ) {
 			bytes32 topHash = peaks[peakCount - 1];
 			peakCount--;
-			carryHash = MmrLib.mergeNodes(topHash, carryHash);
+			carryHash = MerkleMountainRangeLib.mergeNodes(topHash, carryHash);
 			mergeLeftHashes[i] = topHash;
 			// prettier-ignore
 			unchecked {++i;}
