@@ -21,13 +21,10 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 		bytes32[32] peaks;
 	}
 
-	// keccak256(abi.encode(uint256(keccak256("cid-accumulator.storage.CIDAccumulator")) - 1)) & ~bytes32(uint256(0xff))
-	bytes32 private constant CID_ACCUMULATOR_STORAGE_LOCATION =
-		0x0c1447a2674fa729fff3d504370bf94b14acba58744e095eba37231c62d2ad00;
-
 	function _getAccumulatorStorage() private pure returns (CIDAccumulatorStorage storage state) {
+		uint256 slot = erc7201("cid-accumulator.storage.CIDAccumulator");
 		assembly ("memory-safe") {
-			state.slot := CID_ACCUMULATOR_STORAGE_LOCATION
+			state.slot := slot
 		}
 	}
 
