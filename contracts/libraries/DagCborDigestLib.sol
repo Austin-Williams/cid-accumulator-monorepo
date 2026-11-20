@@ -44,7 +44,7 @@ library DagCborDigestLib {
 
 	function encodeLinkNode(bytes32 leftHash, bytes32 rightHash) internal pure returns (bytes32 hash) {
 		// Start inline assembly for CBOR link node construction and Keccak-256 hashing
-		assembly {
+		assembly ("memory-safe") {
 			// Reuse memory at the free pointer without advancing it; only the digest escapes.
 			let ptr := mload(0x40)
 			// Bytes 0..11: map(2), "L", tag(42), bytes(37), identity prefix, CIDv1/DAG-CBOR/Keccak-256.
