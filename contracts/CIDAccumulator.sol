@@ -13,6 +13,9 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 	using MetaBitsLib for uint256;
 	using CIDLib for bytes32;
 
+	/// @dev The empty accumulator's root is the digest of DAG-CBOR null (0xf6).
+	bytes32 private constant EMPTY_ROOT_DIGEST = keccak256(hex"f6");
+
 	/// @custom:storage-location erc7201:cid-accumulator.storage.CIDAccumulator
 	/// @dev Keep the namespace and existing field order/types unchanged across upgrades.
 	struct CIDAccumulatorStorage {
@@ -36,7 +39,12 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 	/// @inheritdoc ICIDAccumulator
 	function getCIDAccumulatorRootCIDString() external view returns (string memory) {
 		CIDAccumulatorStorage storage state = _getAccumulatorStorage();
-		bytes32 root = MerkleMountainRangeLib.bagPeaks(state.merkleMountainRangeMetaBits.getPeakCount(), state.peaks);
+		bytes32 root = MerkleMountainRangeLib.bagPeaks({
+			peakCount: state.merkleMountainRangeMetaBits.getPeakCount(),
+			peaks: state.peaks,
+			hashPair: DagCborDigestLib.encodeLinkNode,
+			emptyRoot: EMPTY_ROOT_DIGEST
+		});
 		return root.encodeCidString();
 	}
 
@@ -50,7 +58,8 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 			peaks: state.peaks,
 			leafHash: leafHash,
 			leafCount: previousMetaBits.getLeafCount(),
-			peakCount: previousMetaBits.getPeakCount()
+			peakCount: previousMetaBits.getPeakCount(),
+			hashPair: DagCborDigestLib.encodeLinkNode
 		});
 
 		_emitDataAppended(previousMetaBits, payload, mergeLeftHashes);

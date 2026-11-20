@@ -1,22 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.38;
 
-import {DagCborDigestLib} from "./DagCborDigestLib.sol";
-
 /// @notice Appends leaves to a Merkle mountain range and computes its root from the peaks.
+/// @dev Use the same ordered pair hash for every append and root calculation on a tree.
 library MerkleMountainRangeLib {
 	/// @notice Appends a leaf digest by merging it with peaks of the same height.
 	/// @param peaks The first peakCount entries are the active peaks, ordered from highest to lowest.
-	/// @param leafHash DAG-CBOR digest of the new leaf.
+	/// @param leafHash Digest of the new leaf.
 	/// @param leafCount Number of leaves before the append.
 	/// @param peakCount Number of active peaks before the append.
+	/// @param hashPair Computes the parent digest from its left and right child digests, in that order.
 	/// @return newPeakIndex Index of the resulting peak in the peaks array.
 	/// @return mergeLeftHashes Consumed peaks in merge order, starting with the lowest height.
 	function appendLeaf(
 		bytes32[32] storage peaks,
 		bytes32 leafHash,
 		uint256 leafCount,
-		uint256 peakCount
+		uint256 peakCount,
+		function (bytes32, bytes32) internal pure returns (bytes32) hashPair
 	) internal returns (uint256 newPeakIndex, bytes32[] memory mergeLeftHashes) {
 		uint256 numMerges = mergeCount(leafCount);
 		mergeLeftHashes = new bytes32[](numMerges);
@@ -27,7 +28,7 @@ library MerkleMountainRangeLib {
 			--newPeakIndex;
 			bytes32 leftHash = peaks[newPeakIndex];
 			mergeLeftHashes[i] = leftHash;
-			peakHash = mergeNodes(leftHash, peakHash);
+			peakHash = hashPair(leftHash, peakHash);
 		}
 		// The other consumed slots are outside the active peaks and can be reused.
 		peaks[newPeakIndex] = peakHash;
@@ -46,25 +47,23 @@ library MerkleMountainRangeLib {
 		}
 	}
 
-	/// @notice Merges two nodes (hashes) into a single node (hash) by encoding them as a DAG-CBOR link node.
-	/// @param left The hash of the left node.
-	/// @param right The hash of the right node.
-	/// @return mergedHash The hash of the merged node.
-	function mergeNodes(bytes32 left, bytes32 right) internal pure returns (bytes32 mergedHash) {
-		mergedHash = DagCborDigestLib.encodeLinkNode(left, right);
-	}
-
-	/// @notice Computes the root hash of the MMR by bagging all peaks.
+	/// @notice Computes the root hash of the MMR by folding the active peaks from left to right.
 	/// @param peakCount Number of peaks.
 	/// @param peaks Reference to the contract's storage peaks array.
+	/// @param hashPair The ordered pair hash used to append leaves to this tree.
+	/// @param emptyRoot Digest to return when the tree has no leaves.
 	/// @return rootHash The root hash of the MMR.
-	/// @dev The empty root is the digest of DAG-CBOR null (0xf6).
-	function bagPeaks(uint256 peakCount, bytes32[32] storage peaks) internal view returns (bytes32 rootHash) {
-		if (peakCount == 0) return keccak256(hex"f6");
+	function bagPeaks(
+		uint256 peakCount,
+		bytes32[32] storage peaks,
+		function (bytes32, bytes32) internal pure returns (bytes32) hashPair,
+		bytes32 emptyRoot
+	) internal view returns (bytes32 rootHash) {
+		if (peakCount == 0) return emptyRoot;
 		rootHash = peaks[0];
 		uint256 i = 1;
 		while (i < peakCount) {
-			rootHash = DagCborDigestLib.encodeLinkNode(rootHash, peaks[i]);
+			rootHash = hashPair(rootHash, peaks[i]);
 			// prettier-ignore
 			unchecked {++i;}
 		}
