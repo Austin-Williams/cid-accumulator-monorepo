@@ -29,13 +29,13 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 	}
 
 	/// @inheritdoc ICIDAccumulator
-	function getCIDAccumulatorState() external view override returns (uint256, bytes32[32] memory) {
+	function getCIDAccumulatorState() external view returns (uint256, bytes32[32] memory) {
 		CIDAccumulatorStorage storage state = _getAccumulatorStorage();
 		return (state.merkleMountainRangeMetaBits, state.peaks);
 	}
 
 	/// @inheritdoc ICIDAccumulator
-	function getCIDAccumulatorRootCIDString() external view override returns (string memory) {
+	function getCIDAccumulatorRootCIDString() external view returns (string memory) {
 		CIDAccumulatorStorage storage state = _getAccumulatorStorage();
 		bytes32 root = MerkleMountainRangeLib.bagPeaks(state.merkleMountainRangeMetaBits.getPeakCount(), state.peaks);
 		return root.encodeCidString();
