@@ -36,17 +36,14 @@ export async function retryWithBackoff<T>(
 
 /**
  * Task to be processed in the queue
- * @template T The return type of the task function
  */
-type QueueTask<T> = {
+type QueueTask = {
 	/** Unique identifier for the task */
 	id: number
-	/** The function to execute */
-	fn: () => Promise<T>
-	/** Function to call on successful completion */
-	resolve: (value: T | PromiseLike<T>) => void
+	/** Execute the task with its retries and deliver the result to its caller. */
+	run: () => Promise<void>
 	/** Function to call on failure */
-	reject: (reason?: any) => void
+	reject: (reason: unknown) => void
 }
 
 /**
@@ -63,7 +60,7 @@ export class RateLimiter {
 	private capDelay: number
 	private logger: Logger = createLogger("RateLimiter")
 	/** Queue of pending tasks */
-	private queue: Array<QueueTask<any>> = []
+	private queue: QueueTask[] = []
 
 	/** Flag indicating if the queue processor is running */
 	private processingQueue = false
@@ -93,8 +90,7 @@ export class RateLimiter {
 		return new Promise<T>((resolve, reject) => {
 			this.queue.push({
 				id,
-				fn,
-				resolve,
+				run: () => retryWithBackoff(fn, this.maxRetries, this.baseDelay, this.capDelay).then(resolve),
 				reject,
 			})
 			if (!this.processingQueue) {
@@ -135,8 +131,7 @@ export class RateLimiter {
 			return
 		}
 
-		retryWithBackoff(task.fn, this.maxRetries, this.baseDelay, this.capDelay)
-			.then((result) => task.resolve(result))
+		task.run()
 			.catch((error) => {
 				this.logger.error(`Task ${task.id} failed: ${error}`)
 				task.reject(error)

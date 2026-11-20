@@ -1,6 +1,6 @@
 import type { DeepPartial } from "../types/common.js"
 
-export interface EventCacheServiceConfigUserInput extends DeepPartial<EventCacheServiceConfig> {}
+export type EventCacheServiceConfigUserInput = DeepPartial<EventCacheServiceConfig>
 
 export interface EventCacheServiceConfig {
 	lazyLoadEvents: boolean

@@ -4,10 +4,10 @@ import { fetchWithRedactedErrors } from "../utils/http.js"
 // Makes a raw Ethereum JSON-RPC call using fetch.
 // @param ethereumHttpRpcUrl string (Ethereum node endpoint)
 // @param method string (JSON-RPC method)
-// @param params any[] (JSON-RPC params)
+// @param params JSON-RPC params
 // @param id number (request id, default 1)
-// @returns Promise<any> (result field from response)
-export async function ethRpcFetch(ethereumHttpRpcUrl: string, method: string, params: any[], id = 1): Promise<any> {
+// @returns The result field from the response
+export async function ethRpcFetch(ethereumHttpRpcUrl: string, method: string, params: unknown[], id = 1): Promise<unknown> {
 	const res = await fetchWithRedactedErrors(ethereumHttpRpcUrl, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
@@ -48,5 +48,7 @@ export async function callContractView(
 	data: string,
 	blockTag: BlockReference = "latest"
 ) {
-	return ethRpcFetch(ethereumHttpRpcUrl, "eth_call", [{ to: contractAddress, data }, blockTag])
+	const result = await ethRpcFetch(ethereumHttpRpcUrl, "eth_call", [{ to: contractAddress, data }, blockTag])
+	if (typeof result !== "string") throw new Error("Ethereum RPC returned an invalid eth_call result")
+	return result
 }

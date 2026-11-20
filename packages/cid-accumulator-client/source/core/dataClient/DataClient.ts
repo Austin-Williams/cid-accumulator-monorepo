@@ -103,7 +103,12 @@ export class DataClient {
 							const next = await chain.snapshot()
 							const latest = await this.accumulatorContract.getCIDAccumulatorState({ blockHash: next.block.hash, requireCanonical: true })
 							if (latest.meta.leafCount <= meta.leafCount) throw error
-							if (snapshotRefreshes++ >= MAX_SYNC_SNAPSHOT_REFRESHES) throw new Error(`[DataClient] Contract kept advancing during sync for ${this.account}; retry sync() to verify a fresh snapshot.`)
+							if (snapshotRefreshes++ >= MAX_SYNC_SNAPSHOT_REFRESHES) {
+								throw new Error(
+									`[DataClient] Contract kept advancing during sync for ${this.account}; retry sync() to verify a fresh snapshot.`,
+									{ cause: error }
+								)
+							}
 							this.activeSnapshot = next
 							state = latest
 						}
@@ -112,10 +117,11 @@ export class DataClient {
 					// A canonical-state RPC may reject before returning any data. Reconcile that
 					// snapshot too, so this is retriable when its block was replaced.
 					const failedSnapshot = this.activeSnapshot ?? snapshot
+					let syncError = error
 					if (failedSnapshot) {
-						try { await chain.ensureCanonical(failedSnapshot) } catch (changed) { error = changed }
+						try { await chain.ensureCanonical(failedSnapshot) } catch (changed) { syncError = changed }
 					}
-					if (!(error instanceof ChainChangedError) || attempt >= MAX_SYNC_SNAPSHOT_REFRESHES) throw error
+					if (!(syncError instanceof ChainChangedError) || attempt >= MAX_SYNC_SNAPSHOT_REFRESHES) throw syncError
 				}
 			}
 		}).finally(() => {

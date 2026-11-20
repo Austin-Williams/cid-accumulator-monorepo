@@ -1,13 +1,8 @@
 import type { DeepPartial } from "../types/common.js"
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-	if (value === null || typeof value !== "object") return false
-	const prototype = Object.getPrototypeOf(value)
-	return prototype === Object.prototype || prototype === null
-}
+import { isPlainObject } from "./objects.js"
 
 export function mergeConfigWithDefaults<T>(userConfig: DeepPartial<T> | undefined, defaultConfig: T): T {
-	const result: any = Array.isArray(defaultConfig) ? [] : {}
+	const result = (Array.isArray(defaultConfig) ? [] : {}) as Record<string, unknown>
 
 	for (const key in defaultConfig) {
 		const userValue = userConfig?.[key as keyof T]

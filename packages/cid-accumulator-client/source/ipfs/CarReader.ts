@@ -1,6 +1,7 @@
 import { CID } from './CID.js'
 import * as dagCbor from '../utils/dagCbor.js'
 import type { DagCborEncodedData } from './types.js'
+import { isPlainObject } from "../utils/objects.js"
 
 // Reads a varint from a Uint8Array at a given offset. Returns [value, bytesRead]
 function readVarint(buf: Uint8Array, offset: number): [number, number] {
@@ -18,12 +19,10 @@ function readVarint(buf: Uint8Array, offset: number): [number, number] {
 	throw new Error("CAR length exceeds safe integer range")
 }
 
+type CarBlock = { cid: CID; bytes: Uint8Array }
+
 export class CarReader {
-	// Allow bytes to be either Uint8Array or DagCborEncodedData for downstream compatibility
-	private blocksArr: Array<{ cid: CID<any, any, any, any>, bytes: Uint8Array | DagCborEncodedData }>
-	private constructor(blocks: Array<{ cid: CID<any, any, any, any>, bytes: Uint8Array | DagCborEncodedData }>) {
-		this.blocksArr = blocks
-	}
+	private constructor(private readonly blocksArr: CarBlock[]) {}
 
 	static async fromBytes(bytes: Uint8Array): Promise<CarReader> {
 		let offset = 0
@@ -37,9 +36,7 @@ export class CarReader {
 		const headerBytes = bytes.slice(offset, offset + headerLen)
 		const header = dagCbor.decode(headerBytes as DagCborEncodedData)
 		if (
-			header === null ||
-			typeof header !== "object" ||
-			Array.isArray(header) ||
+			!isPlainObject(header) ||
 			!Object.prototype.hasOwnProperty.call(header, "version") ||
 			header.version !== 1 ||
 			!Object.prototype.hasOwnProperty.call(header, "roots") ||
@@ -50,7 +47,7 @@ export class CarReader {
 		}
 		offset += headerLen
 
-		const blocks: Array<{ cid: CID<any, any, any, any>, bytes: Uint8Array }> = []
+		const blocks: CarBlock[] = []
 
 		while (offset < bytes.length) {
 			// Read block length (varint)

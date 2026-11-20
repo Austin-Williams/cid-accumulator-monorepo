@@ -13,7 +13,7 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 	using MetaBitsLib for uint256;
 	using CIDLib for bytes32;
 
-	/// @dev As per IPFS convention, the empty accumulator's root is the digest of DAG-CBOR null (0xf6).
+	/// @dev An empty accumulator uses the Keccak-256 digest of DAG-CBOR null (0xf6) as its root.
 	bytes32 private constant EMPTY_ROOT_DIGEST = keccak256(hex"f6");
 
 	/// @custom:storage-location erc7201:cid-accumulator.storage.CIDAccumulator

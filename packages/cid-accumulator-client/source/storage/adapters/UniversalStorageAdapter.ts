@@ -18,7 +18,7 @@ export class UniversalStorageAdapter implements Storage {
 		return this.backend.getIdentity ? this.backend.getIdentity() : this.backend
 	}
 
-	async put(key: string, value: any) {
+	async put(key: string, value: string) {
 		return this.backend.put(key, value)
 	}
 	async get(key: string) {

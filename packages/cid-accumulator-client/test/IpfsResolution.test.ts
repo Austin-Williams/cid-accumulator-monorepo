@@ -60,10 +60,15 @@ async function fixture(t: TestContext, gatewayUrl = "https://ipfs.example.test",
 	let car: Uint8Array | undefined
 	const rawBlocks = new Map<string, Uint8Array>()
 	const requests: URL[] = []
-	const fetch = t.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
+	const fetch = t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
 		const url = new URL(input instanceof Request ? input.url : input.toString())
 		requests.push(url)
-		const bytes = url.searchParams.get("format") === "car" ? car : rawBlocks.get(url.pathname.split("/").pop()!)
+		const format = url.searchParams.get("format")
+		const acceptsRaw = new Headers(init?.headers).get("Accept") === "application/vnd.ipld.raw"
+		if (format !== "car" && (format !== "raw" || !acceptsRaw)) {
+			return new Response(null, { status: 406 })
+		}
+		const bytes = format === "car" ? car : rawBlocks.get(url.pathname.split("/").pop()!)
 		return bytes ? new Response(new Uint8Array(bytes)) : new Response(null, { status: 404 })
 	})
 	t.after(() => resolver.stop())
@@ -142,13 +147,27 @@ describe("complete IPFS tree resolution", { concurrency: false, timeout: 5000 },
 		assert.equal(requests.length, 0)
 	})
 
+	test("a single-block read overrides the gateway format and only caches matching bytes", async (t) => {
+		const f = await fixture(t, "https://ipfs.example.test/?format=car")
+		const cid = f.left.cid
+		f.rawBlocks.set(cid.toString(), f.right.dagCborEncodedData)
+		assert.equal(await f.resolver.getBlock(cid), undefined)
+		assert.deepEqual(f.requests[0].searchParams.getAll("format"), ["raw"])
+		assert.equal(await f.storage.get(`ipfs:block:${cid}`), undefined)
+
+		f.rawBlocks.set(cid.toString(), f.left.dagCborEncodedData)
+		assert.deepEqual(await f.resolver.getBlock(cid), f.left.dagCborEncodedData)
+		assert.deepEqual(await f.resolver.getBlock(cid, true), f.left.dagCborEncodedData)
+		assert.equal(f.requests.length, 2)
+	})
+
 	for (const missing of ["left", "right", "last"] as const) {
 		test(`a cached tree missing the ${missing} leaf remains unresolved`, async (t) => {
 			const f = await fixture(t)
 			await f.cache(f.blocks.filter((block) => block !== f[missing]))
 			assert.equal(await f.resolver.fullyResolveCID(f.root.cid), undefined)
 			assert.equal(f.requests[0].searchParams.get("format"), "car")
-			assert.ok(f.requests.some((url) => url.pathname === `/ipfs/${f[missing].cid}` && !url.search))
+			assert.ok(f.requests.some((url) => url.pathname === `/ipfs/${f[missing].cid}` && url.searchParams.get("format") === "raw"))
 		})
 	}
 
@@ -175,7 +194,7 @@ describe("complete IPFS tree resolution", { concurrency: false, timeout: 5000 },
 			assert.equal(await f.resolver.fullyResolveCID(f.root.cid), undefined)
 			assert.equal(f.requests.length, 2, "An incomplete CAR should trigger individual block fallback")
 			assert.equal(f.requests[1].pathname, `/ipfs/${f.root.cid}`)
-			assert.equal(f.requests[1].search, "")
+			assert.deepEqual(f.requests[1].searchParams.getAll("format"), ["raw"])
 			for (const block of f.blocks) {
 				assert.equal(await f.storage.get(`ipfs:block:${block.cid}`), undefined)
 			}
@@ -191,8 +210,8 @@ describe("complete IPFS tree resolution", { concurrency: false, timeout: 5000 },
 		assert.equal(await f.storage.get(`ipfs:block:${f.left.cid}`), undefined)
 	})
 
-	test("an incomplete CAR can fall back to individual blocks before yielding payloads", async (t) => {
-		const f = await fixture(t, "https://ipfs.example.test/gateway/?token=a%2Bb%2Fc%3D&format=raw", 1)
+	test("an incomplete CAR falls back to verified raw blocks on a trustless gateway", async (t) => {
+		const f = await fixture(t, "https://ipfs.example.test/gateway/?token=a%2Bb%2Fc%3D", 1)
 		f.setCar([f.root, f.branch])
 		for (const block of f.blocks) f.rawBlocks.set(block.cid.toString(), block.dagCborEncodedData)
 		// The first individual block request fails, then the gateway recovers.

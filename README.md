@@ -69,7 +69,7 @@ event DataAppendedToCIDAccumulator(
 );
 ```
 
-Most data inserts require between 12.9k and 16.5k gas. See below for more about gas costs.
+Most data inserts require between 12.9k and 16.4k gas. See below for more about gas costs.
 
 ## How the off-chain component works
 
@@ -138,9 +138,12 @@ const highestLeafIndexNumber = await client.getHighestIndex()
 const i = 0
 const payloadHexString = await client.getPayload(i)
 
-// Get the payloads in the range [i, j] as hex strings
+// Get the available records from leaf index i through j, inclusive
 const j = 10
-const payloadsHexStringArray = await client.getPayloadInRange(i, j)
+const records = await client.getPayloadInRange(i, j)
+for (const { index, payload } of records) {
+  console.log(index, payload) // payload is hex without a 0x prefix
+}
 
 // iterate over all payloads using the async iterator
 for await (const { index, payload } of client.iterate()) {
@@ -376,26 +379,26 @@ await seeder.stop()
 
 ## Gas Costs
 
-The execution gas cost of `_appendDataToCIDAccumulator` depends on how many **merge steps** are triggered by that particular insert. Most inserts (75% of them) require zero or one peak update and are cheap (cheaper than a fresh SSTORE). Occasionally, an insert will trigger a chain of merges — and this is what increases gas (for that insert only). Gas estimations below use a 32-byte payload.
+The execution gas cost of `_appendDataToCIDAccumulator` depends on how many peaks the insert merges. Three out of four inserts require zero or one merge.
 
-Measured with Solidity 0.8.38, optimizer 200 runs, Osaka, using `ExampleApplication.record(bytes32)` with cold storage accesses and previously used peak slots. Figures exclude transaction intrinsic gas and any additional application logic.
+We measured 1,024 calls to `ExampleApplication.record(bytes32)` in separate transactions, using Solidity 0.8.38 targeting Osaka with 200 optimizer runs and `viaIR` disabled. The table shows execution gas with cold storage accesses and previously used peak slots. Transaction intrinsic gas is excluded.
 
 | Merge Depth | Description                      | **Approx Gas** |
 | ----------- | -------------------------------- | -------------- |
 | 0           | No merges (new peak at height 0) | ≈ 12.9k gas    |
-| 1           | Merge with 1 peak  → height 1    | ≈ 13.7k gas    |
-| 2           | Merge with 2 peaks → height 2    | ≈ 16.5k gas    |
-| 3           | Merge with 3 peaks → height 3    | ≈ 19.4k gas    |
-| 4           | Merge with 4 peaks → height 4    | ≈ 22.3k gas    |
-| 5           | Merge with 5 peaks → height 5    | ≈ 25.1k gas    |
-| 6           | Merge with 6 peaks → height 6    | ≈ 28.0k gas    |
-| 7           | Merge with 7 peaks → height 7    | ≈ 30.9k gas    |
-| 8           | Merge with 8 peaks → height 8    | ≈ 33.8k gas    |
-| 9           | Merge with 9 peaks → height 9    | ≈ 36.6k gas    |
-| 10          | Merge with 10 peaks → height 10  | ≈ 39.5k gas    |
+| 1           | Merge with 1 peak  → height 1    | ≈ 13.6k gas    |
+| 2           | Merge with 2 peaks → height 2    | ≈ 16.4k gas    |
+| 3           | Merge with 3 peaks → height 3    | ≈ 19.1k gas    |
+| 4           | Merge with 4 peaks → height 4    | ≈ 21.9k gas    |
+| 5           | Merge with 5 peaks → height 5    | ≈ 24.6k gas    |
+| 6           | Merge with 6 peaks → height 6    | ≈ 27.4k gas    |
+| 7           | Merge with 7 peaks → height 7    | ≈ 30.1k gas    |
+| 8           | Merge with 8 peaks → height 8    | ≈ 32.9k gas    |
+| 9           | Merge with 9 peaks → height 9    | ≈ 35.7k gas    |
+| 10          | Merge with 10 peaks → height 10  | ≈ 38.4k gas    |
 
 
-> ℹ️ Most inserts (87.5%) fall in the **12.9K–16.5K gas** range. Deeper merges are **exponentially rare**:
+> ℹ️ In steady state, 87.5% of inserts fall in the **12.9k–16.4k gas** range. The frequency halves with each additional merge.
 >
 > - Merge depth 3 happens once every 16 inserts
 > - Merge depth 6 happens once every 128 inserts
@@ -405,26 +408,26 @@ For example, if you insert `2^20` entries (just over 1 million), here’s how of
 
 | Merge Depth | Inserts (%) | **Approx Gas** |
 | ----------- | ----------- | -------------- |
-| 0           | 50.0%       | ≈ 12 .9 k      |
-| 1           | 25.0%       | ≈ 13 .7 k      |
-| 2           | 12.5%       | ≈ 16 .5 k      |
-| 3           | 6.25%       | ≈ 19 .4 k      |
-| 4           | 3.125%      | ≈ 22 .3 k      |
-| 5           | 1.5625%     | ≈ 25 .1 k      |
-| 6           | 0.78125%    | ≈ 28 .0 k      |
-| 7           | 0.390625%   | ≈ 30 .9 k      |
-| 8           | 0.1953125%  | ≈ 33 .8 k      |
-| 9           | 0.09765625% | ≈ 36 .6 k      |
-| 10          | 0.048828125%| ≈ 39 .5 k      |
+| 0           | 50.0%       | ≈ 12.9k gas    |
+| 1           | 25.0%       | ≈ 13.6k gas    |
+| 2           | 12.5%       | ≈ 16.4k gas    |
+| 3           | 6.25%       | ≈ 19.1k gas    |
+| 4           | 3.125%      | ≈ 21.9k gas    |
+| 5           | 1.5625%     | ≈ 24.6k gas    |
+| 6           | 0.78125%    | ≈ 27.4k gas    |
+| 7           | 0.390625%   | ≈ 30.1k gas    |
+| 8           | 0.1953125%  | ≈ 32.9k gas    |
+| 9           | 0.09765625% | ≈ 35.7k gas    |
+| 10          | 0.048828125%| ≈ 38.4k gas    |
 
 
 > ✅ Even after a million inserts, **87.5%** of them will require **two or fewer merges**, keeping gas costs low and consistent.
 
 So the steady-state gas cost is determined only by that insert’s merge activity — **not** by the total size of the data set.
 
-The mean steady-state cost per insert is ≈ 14.7k gas.
+The mean steady-state cost per insert is ≈ 14.6k gas.
 
-Note: The very first time your contract appends data to the accumulator, the execution cost is about 47.1k gas because two empty storage slots need to be unzeroed when initializing the contract's accumulator. Later inserts that use a previously untouched peak slot cost about 17.1k gas more than the table above.
+The first append uses about 47.2k execution gas to initialize the metadata and first peak. Later inserts that write a previously untouched peak slot cost about 17.1k gas more than the table shows.
 
 ## How the CID is computed by the smart contract (for nerds)
 

@@ -24,10 +24,9 @@ function base32encode(bytes: Uint8Array): string {
 }
 
 function base32decode(str: string): Uint8Array {
-	let bits = 0,
-		value = 0,
-		//_index = 0,
-		output = []
+	let bits = 0
+	let value = 0
+	const output: number[] = []
 	str = str.toLowerCase().replace(/=+$/, "")
 	for (let i = 0; i < str.length; i++) {
 		value = (value << 5) | BASE32_ALPHABET.indexOf(str[i])
@@ -47,6 +46,9 @@ export interface MultihashDigest<Alg extends number = number> {
 	size: number
 	bytes: Uint8Array
 }
+
+// Wire data determines these codes. Callers can supply narrower types when their protocol fixes them.
+type DecodedCID<Format extends number = number, Alg extends number = number> = CID<unknown, Format, Alg, 1>
 
 export class CID<
 	Data = unknown,
@@ -81,13 +83,13 @@ export class CID<
 	}
 
 	// === Instance Methods ===
-	equals(other: CID<any, any, any, any>): boolean {
+	equals(other: CID): boolean {
 		return other && this.toString() === other.toString()
 	}
 	link(): this {
 		return this
 	}
-	toJSON(): any {
+	toJSON(): { "/": string } {
 		return { "/": this.toString() }
 	}
 	toString(base?: { encode: (bytes: Uint8Array) => string }): string {
@@ -101,7 +103,7 @@ export class CID<
 		throw new Error("toV0 not supported in this minimal CID")
 	}
 	toV1(): CID<Data, Format, Alg, 1> {
-		if (this.version === 1) return this as any
+		if (this.version === 1) return this as this & CID<Data, Format, Alg, 1>
 		throw new Error("Only v1 supported in this minimal CID")
 	}
 
@@ -111,7 +113,7 @@ export class CID<
 		Format extends number = number,
 		Alg extends number = number,
 		Version extends number = number
-	>(maybeCID: any): CID<T, Format, Alg, Version> | null {
+	>(maybeCID: unknown): CID<T, Format, Alg, Version> | null {
 		if (maybeCID && maybeCID instanceof CID) return maybeCID
 		return null
 	}
@@ -136,7 +138,7 @@ export class CID<
 		return new CID(1 as const, code, multihash)
 	}
 
-	static decode(bytes: Uint8Array): CID<any, any, any, any> {
+	static decode<Format extends number = number, Alg extends number = number>(bytes: Uint8Array): DecodedCID<Format, Alg> {
 		if (bytes[0] === 1) {
 			// V1: [1][codec][multihash...]
 			const version = 1
@@ -144,13 +146,15 @@ export class CID<
 			const codeLen = CID.varintLength(bytes, 1)
 			const mhStart = 1 + codeLen
 			const mh = CID.decodeMultihash(bytes.slice(mhStart))
-			return new CID(version, code.value, mh, bytes)
+			return new CID(version, code.value, mh, bytes) as DecodedCID<Format, Alg>
 		}
 		throw new Error("Only CIDv1 supported")
 	}
 
 	// Added for CAR reader compatibility: returns [CID, bytesConsumed]
-	static decodeWithLength(bytes: Uint8Array): [CID<any, any, any, any>, number] {
+	static decodeWithLength<Format extends number = number, Alg extends number = number>(
+		bytes: Uint8Array
+	): [DecodedCID<Format, Alg>, number] {
 		if (bytes[0] === 1) {
 			const version = 1
 			const code = CID.readVarint(bytes, 1)
@@ -159,26 +163,28 @@ export class CID<
 			const mh = CID.decodeMultihash(bytes.slice(mhStart))
 			const cidByteLength = 1 + codeLen + mh.bytes.length
 			const cid = new CID(version, code.value, mh, bytes.slice(0, cidByteLength))
-			return [cid, cidByteLength]
+			return [cid as DecodedCID<Format, Alg>, cidByteLength]
 		}
 		throw new Error("Only CIDv1 supported")
 	}
 
-	static decodeFirst(bytes: Uint8Array): [CID<any, any, any, any>, number] {
-		const cid = CID.decode(bytes)
+	static decodeFirst<Format extends number = number, Alg extends number = number>(
+		bytes: Uint8Array
+	): [DecodedCID<Format, Alg>, number] {
+		const cid = CID.decode<Format, Alg>(bytes)
 		return [cid, cid.bytes.length]
 	}
 
-	static equals(a: CID<any, any, any, any>, b: CID<any, any, any, any>): boolean {
+	static equals(a: CID, b: CID): boolean {
 		return a && b && a.toString() === b.toString()
 	}
 
-	static inspectBytes(bytes: Uint8Array): any {
+	static inspectBytes(bytes: Uint8Array) {
 		// Minimal stub, not a full implementation
 		return { version: bytes[0], codec: bytes[1], multihashCode: bytes[2] }
 	}
 
-	static parse(str: string): CID<any, any, any, any> {
+	static parse<Format extends number = number, Alg extends number = number>(str: string): DecodedCID<Format, Alg> {
 		// Expect base32-encoded CIDv1
 		if (str[0] !== "b") throw new Error('CID string must be base32 (start with "b")')
 		const bytes = base32decode(str.slice(1))

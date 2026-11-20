@@ -253,7 +253,7 @@ export class EventCacheService implements LifecycleComponent {
 						if (leafRecord) leafRecords.push(leafRecord)
 					}
 				} catch (e) {
-					throw new Error(`Failed to parse events for account ${account.toString()} at block ${blockNum}: ${e}`)
+					throw new Error(`Failed to parse events for account ${account.toString()} at block ${blockNum}: ${e}`, { cause: e })
 				}
 			}
 		}
@@ -275,8 +275,8 @@ export class EventCacheService implements LifecycleComponent {
 		blockNum: number
 	): Promise<LeafRecord> {
 		const account = this.accumulatorContract.address
-		let leafRecords = await this.getLeafRecords(blockNum, blockNum)
-		let leafRecordsWithLeafIndex = leafRecords.filter((e) => e.leafIndex === leafIndex)
+		const leafRecords = await this.getLeafRecords(blockNum, blockNum)
+		const leafRecordsWithLeafIndex = leafRecords.filter((e) => e.leafIndex === leafIndex)
 
 		if (leafRecordsWithLeafIndex.length > 1) {
 			throw new Error(

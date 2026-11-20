@@ -8,7 +8,7 @@ import { fetchWithRedactedErrors } from "../utils/http.js"
 import { verifyCIDAgainstDagCborEncodedDataOrThrow } from "./utils.js"
 
 import type { CID } from "./CID.js"
-import type { DagCborEncodedData, IpldNode } from "./types.js"
+import type { DagCborEncodedData } from "./types.js"
 import type { IpfsResolverConfig } from "./IpfsResolver.types.js"
 import type { LifecycleComponent, Logger } from "../types/common.js"
 import type { Storage } from "../storage/interface.js"
@@ -34,7 +34,7 @@ export class IpfsResolver implements LifecycleComponent {
 	 * @dev Stores any blocks retrieved from IPFS in the local DB if it is not already present.
 	 * @dev The DagCborEncodedData can be decoded via dagCbor.decode.
 	 */
-	public async getBlock(cid: CID<unknown, 113, 27, 1>, localStorageOnly: boolean = false): Promise<DagCborEncodedData | undefined> {
+	public async getBlock(cid: CID, localStorageOnly: boolean = false): Promise<DagCborEncodedData | undefined> {
 		// Check if we already have this CID in the local DB
 		const cidString = cid.toString()
 		const key = `ipfs:block:${cidString}`
@@ -54,12 +54,16 @@ export class IpfsResolver implements LifecycleComponent {
 		if (localStorageOnly) return undefined
 
 		// Each download attempt gets its own timeout and abort signal.
-		const url = buildIpfsUrl(this.gatewayUrl, `ipfs/${cid.toString()}`).toString()
+		const url = buildIpfsUrl(this.gatewayUrl, `ipfs/${cidString}`, { format: "raw" }).toString()
 		const fetchBlock = async () => {
 			const controller = new AbortController()
 			const timeoutId = setTimeout(() => controller.abort(), 5000)
 			try {
-				const res = await fetchWithRedactedErrors(url, { method: "GET", signal: controller.signal })
+				const res = await fetchWithRedactedErrors(url, {
+					method: "GET",
+					headers: { Accept: "application/vnd.ipld.raw" },
+					signal: controller.signal,
+				})
 				if (!res.ok) throw new Error(`IPFS block/get failed: ${res.status} ${res.statusText}`)
 				const data: DagCborEncodedData = new Uint8Array(await res.arrayBuffer()) as DagCborEncodedData
 
@@ -98,7 +102,7 @@ export class IpfsResolver implements LifecycleComponent {
 	 * @return An iterable of leaf payloads in order if the entire DAG was resolved, or undefined otherwise.
 	 */
 	public async fullyResolveCID(
-		cid: CID<unknown, 113, 27, 1>
+		cid: CID
 	): Promise<AsyncIterable<{ leafIndex: number; payload: Uint8Array }> | undefined> {
 		// Try to resolve the root CID using local storage only
 		const resolvedViaLocalStorage = await this.resolveMerkleTree(cid, true)
@@ -172,7 +176,7 @@ export class IpfsResolver implements LifecycleComponent {
 		return deletedCount
 	}
 
-	private async getAndCacheMerkleTreeViaCarFile(rootCid: CID<unknown, 113, 27, 1>): Promise<boolean> {
+	private async getAndCacheMerkleTreeViaCarFile(rootCid: CID): Promise<boolean> {
 		const url = buildIpfsUrl(this.gatewayUrl, `ipfs/${rootCid.toString()}`, { format: "car" }).toString()
 		const controller = new AbortController()
 		const timeoutId = setTimeout(() => controller.abort(), 15000)
@@ -189,7 +193,7 @@ export class IpfsResolver implements LifecycleComponent {
 
 			// Verify each block before checking whether the CAR contains the complete requested tree.
 			for await (const block of carReader.blocks()) {
-				const computedCID = await verifyCIDAgainstDagCborEncodedData(block.bytes as DagCborEncodedData, block.cid as CID<unknown, 113, 27, 1>)
+				const computedCID = await verifyCIDAgainstDagCborEncodedData(block.bytes as DagCborEncodedData, block.cid)
 				if (!computedCID) throw new Error(`CID/Data pair is invalid. dagCborEncodedData: ${block.bytes}, expectedCID: ${block.cid.toString()}`)
 				cidStringToDataMap.set(block.cid.toString(), block.bytes as DagCborEncodedData)
 			}
@@ -207,7 +211,7 @@ export class IpfsResolver implements LifecycleComponent {
 
 			return true
 		} catch (error: unknown) {
-			if ((error as any).name === "AbortError") {
+			if (error instanceof Error && error.name === "AbortError") {
 				this.logger.warn(`CAR fetch timed out after 15000ms for root CID ${rootCid.toString()}`)
 			} else {
 				this.logger.error(`Error fetching CAR file for root CID ${rootCid.toString()}: ${error}`)
@@ -226,16 +230,16 @@ export class IpfsResolver implements LifecycleComponent {
 	 * @return AsyncIterable that yields objects with leafIndex and payload
 	 */
 	private createPayloadsAsyncIterable(
-		rootCid: CID<unknown, 113, 27, 1>
+		rootCid: CID
 	): AsyncIterable<{ leafIndex: number; payload: Uint8Array }> {
 		// Keep track of the current leaf index
 		let leafIndex = 0
 
 		// Stack for DFS traversal
-		const stack: CID<unknown, 113, 27, 1>[] = [rootCid]
+		const stack: CID[] = [rootCid]
 
-		// Store a reference to this instance for use in the iterator
-		const adapter = this
+		const getBlock = this.getBlock.bind(this)
+		const logger = this.logger
 
 		// Return an async iterable with its iterator
 		return {
@@ -254,12 +258,12 @@ export class IpfsResolver implements LifecycleComponent {
 
 						try {
 							// Get the DagCborEncodedData for the ipfs block
-							const dagCborEncodedData = await adapter.getBlock(cid)
+							const dagCborEncodedData = await getBlock(cid)
 
 							if (!dagCborEncodedData) throw new Error(`Could not get block for CID ${cid.toString()}`)
 
 							// Decode the node
-							const node: IpldNode = dagCbor.decode(dagCborEncodedData)
+							const node = dagCbor.decode(dagCborEncodedData)
 
 							if (node instanceof Uint8Array) {
 								// It's a leaf node, return it with the current index, then increment for next time
@@ -284,7 +288,7 @@ export class IpfsResolver implements LifecycleComponent {
 								throw new Error("Unexpected node structure in next()")
 							}
 						} catch (error) {
-							adapter.logger.error(`Error processing CID ${cid.toString()}: ${error}`)
+							logger.error(`Error processing CID ${cid.toString()}: ${error}`)
 
 							throw error
 						}
@@ -293,12 +297,11 @@ export class IpfsResolver implements LifecycleComponent {
 					/**
 					 * @notice Handles early termination of iteration
 					 * @dev Called when a for-await-of loop is broken out of, or when a generator is manually closed
-					 * @param _value Optional value to return (unused but required by AsyncIterator interface)
 					 * @return Promise that resolves to an IteratorResult indicating completion
 					 */
-					async return(_value?: any): Promise<IteratorResult<{ leafIndex: number; payload: Uint8Array }>> {
+					async return(): Promise<IteratorResult<{ leafIndex: number; payload: Uint8Array }>> {
 						// Clean up resources
-						adapter.logger.log(`Iterator returned early, cleaning up resources`)
+						logger.log(`Iterator returned early, cleaning up resources`)
 						stack.length = 0
 						return { done: true, value: undefined }
 					},
@@ -309,9 +312,9 @@ export class IpfsResolver implements LifecycleComponent {
 					 * @param error The error that was thrown
 					 * @return Promise that rejects with the error after cleanup
 					 */
-					async throw(error?: any): Promise<IteratorResult<{ leafIndex: number; payload: Uint8Array }>> {
+					async throw(error?: unknown): Promise<IteratorResult<{ leafIndex: number; payload: Uint8Array }>> {
 						// Clean up resources
-						adapter.logger.error(`Error in iterator, cleaning up resources: ${error}`)
+						logger.error(`Error in iterator, cleaning up resources: ${error}`)
 						stack.length = 0
 						throw error || new Error("Iterator terminated with an error")
 					},
@@ -327,12 +330,12 @@ export class IpfsResolver implements LifecycleComponent {
 	 * @param cid The root CID of the Merkle tree to resolve. Must be CID.
 	 * @return Promise<boolean> Resolves to true if the DAG is successfully resolved, false otherwise
 	 */
-	private async resolveMerkleTree(cid: CID<unknown, 113, 27, 1>, localStorageOnly: boolean = false): Promise<boolean> {
+	private async resolveMerkleTree(cid: CID, localStorageOnly: boolean = false): Promise<boolean> {
 		const dagCborEncodedData = await this.getBlock(cid, localStorageOnly)
 		if (!dagCborEncodedData) return false
 
 		// you either get (NOT DagCbor encoded) leaf data, a leaf's CID, or a (NOT DagCbor encoded) link node
-		const node: IpldNode = dagCbor.decode(dagCborEncodedData)
+		const node = dagCbor.decode(dagCborEncodedData)
 
 		if (node instanceof Uint8Array) {
 			// then we just got a leaf

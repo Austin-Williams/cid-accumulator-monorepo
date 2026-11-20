@@ -2,9 +2,19 @@ import { createLogger } from "../utils/logging.js"
 import { getRemotePinningServices, postIpfsBinary, postIpfsEmpty, verifyCIDAgainstDagCborEncodedData } from "./utils.js"
 import { RemotePinningService } from "./RemotePinningService.js"
 
-import type { CIDDataPair } from "./types.js"
+import type { CID } from "./CID.js"
+import type { DagCborEncodedData } from "./types.js"
 import type { IpfsPinnerConfig } from "./IpfsPinner.types.js"
 import type { LifecycleComponent, RateLimiterOptions } from "../types/common.js"
+import { isPlainObject } from "../utils/objects.js"
+
+type LocalPin = { Name?: string }
+
+function isLocalPinMap(value: unknown): value is Record<string, LocalPin> {
+	return isPlainObject(value) && Object.values(value).every(pin =>
+		isPlainObject(pin) && (pin.Name === undefined || typeof pin.Name === "string")
+	)
+}
 
 /**
  * KuboIpfsPinner implements IpfsPinner using the Kubo (Go) IPFS HTTP API.
@@ -81,7 +91,7 @@ export class IpfsPinner implements LifecycleComponent {
 	}
 
 	/** Upload a verified block. Its reachable roots control how long Kubo retains it. */
-	async putBlock({ cid, dagCborEncodedData }: CIDDataPair): Promise<void> {
+	async putBlock({ cid, dagCborEncodedData }: { cid: CID; dagCborEncodedData: DagCborEncodedData }): Promise<void> {
 		if (!(await verifyCIDAgainstDagCborEncodedData(dagCborEncodedData, cid))) {
 			throw new Error(`[KuboIpfsPinner] Input CID ${cid.toString()} does not match dag-cbor-encoded-data`)
 		}
@@ -93,7 +103,7 @@ export class IpfsPinner implements LifecycleComponent {
 		)
 
 		// HTTP success alone does not confirm that the node accepted this block.
-		const returnedCID = res?.Key
+		const returnedCID = isPlainObject(res) ? res.Key : undefined
 		if (typeof returnedCID !== "string" || returnedCID.length === 0) {
 			throw new Error("[IpfsPinner] Invalid block/put response: expected a non-empty CID in Key")
 		}
@@ -127,7 +137,7 @@ export class IpfsPinner implements LifecycleComponent {
 				throw new Error(`Cannot recursively pin ${cid} without replacing an existing direct pin`)
 			}
 			const result = await postIpfsEmpty(this.baseUrl, "pin/add", { arg: cid, name, recursive: "true" })
-			if (!Array.isArray(result?.Pins) || !result.Pins.includes(cid)) throw new Error(`Kubo did not confirm pinning ${cid}`)
+			if (!isPlainObject(result) || !Array.isArray(result.Pins) || !result.Pins.includes(cid)) throw new Error(`Kubo did not confirm pinning ${cid}`)
 		}
 		await this.init()
 		for (const service of this.remotePinningServices.values()) await service.pin(cid, name)
@@ -139,11 +149,11 @@ export class IpfsPinner implements LifecycleComponent {
 		const pin = await this.localPin(cid, "recursive")
 		if (pin?.Name === name) {
 			const result = await postIpfsEmpty(this.baseUrl, "pin/rm", { arg: cid, recursive: "true" })
-			if (!Array.isArray(result?.Pins) || !result.Pins.includes(cid)) throw new Error(`Kubo did not confirm unpinning ${cid}`)
+			if (!isPlainObject(result) || !Array.isArray(result.Pins) || !result.Pins.includes(cid)) throw new Error(`Kubo did not confirm unpinning ${cid}`)
 		}
 	}
 
-	private async localPin(cid: string, type: "recursive" | "direct"): Promise<{ Name?: string } | undefined> {
+	private async localPin(cid: string, type: "recursive" | "direct"): Promise<LocalPin | undefined> {
 		try {
 			const pins = await this.localPins(type, { arg: cid, name: undefined })
 			return pins[cid]
@@ -156,12 +166,12 @@ export class IpfsPinner implements LifecycleComponent {
 
 	private async localPins(
 		type: "recursive" | "direct", filter: { arg?: string; name?: string }
-	): Promise<Record<string, { Type: string; Name?: string }>> {
+	): Promise<Record<string, LocalPin>> {
 		const result = await postIpfsEmpty(this.baseUrl, "pin/ls", { ...filter, type, names: "true", stream: "false" })
 		// Kubo omits Keys when there are no matches.
-		if (result && typeof result === "object" && !Array.isArray(result)) {
+		if (isPlainObject(result)) {
 			if (Object.keys(result).length === 0) return {}
-			if (result.Keys && typeof result.Keys === "object" && !Array.isArray(result.Keys)) return result.Keys
+			if (isLocalPinMap(result.Keys)) return result.Keys
 		}
 		throw new Error("[IpfsPinner] Invalid pin/ls response")
 	}

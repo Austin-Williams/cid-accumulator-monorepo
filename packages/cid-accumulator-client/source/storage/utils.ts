@@ -43,29 +43,19 @@ export async function putLeafRecordInDB(
 	await storage.put(`${keyPrefix}:leafIndex`, value.leafIndex.toString())
 	await storage.put(`${keyPrefix}:payload`, uint8ArrayToHexString(value.payload))
 
-	// Store optional fields as strings if they exist
-	const optionalFields: Array<[string, any, (val: any) => string]> = [
-		["payloadCID", value.payloadCID, (val: CID) => val.toString()],
-		["blockNumber", value.blockNumber, (val: number) => val.toString()],
-		[
-			"mergeLeftHashes",
-			value.mergeLeftHashes,
-			(val: CID<unknown, 113, 27, 1>[]) => JSON.stringify(val.map((cid) => cid.toString())),
-		],
-		["previousInsertBlockNumber", value.previousInsertBlockNumber, (val: number) => val.toString()],
-		["rootCidAfterInsert", value.rootCidAfterInsert, (val: CID) => val.toString()],
-		["insertionTrail", value.insertionTrail, cidDataPairArrayToStringForDB],
-		["peaksWithHeightsAfterInsert", value.peaksWithHeightsAfterInsert, peakWithHeightArrayToStringForDB],
-	]
-
-	// Process each optional field
-	await Promise.all(
-		optionalFields.map(async ([fieldName, fieldValue, formatter]) => {
-			if (fieldValue !== undefined) {
-				await storage.put(`${keyPrefix}:${fieldName}`, formatter(fieldValue))
-			}
-		})
-	)
+	async function putField<K extends keyof LeafRecord>(key: K, format: (field: NonNullable<LeafRecord[K]>) => string) {
+		const field = value[key]
+		if (field !== undefined) await storage.put(`${keyPrefix}:${key}`, format(field))
+	}
+	await Promise.all([
+		putField("payloadCID", String),
+		putField("blockNumber", String),
+		putField("mergeLeftHashes", (cids) => JSON.stringify(cids.map(String))),
+		putField("previousInsertBlockNumber", String),
+		putField("rootCidAfterInsert", String),
+		putField("insertionTrail", cidDataPairArrayToStringForDB),
+		putField("peaksWithHeightsAfterInsert", peakWithHeightArrayToStringForDB),
+	])
 }
 
 /** Reads a leaf payload after checking the required fields of its record. */
@@ -103,36 +93,19 @@ export async function getLeafRecordFromDB(
 	if (payload === undefined) return undefined
 	const keyPrefix = `account:${account}:leaf:${leafIndex}`
 
-	// Define a type for field parsers that maps directly to LeafRecord properties
-	type FieldParser<K extends keyof LeafRecord> = [K, (val: string) => Promise<LeafRecord[K]> | LeafRecord[K]]
-
-	// Define optional fields with their key names and parsing functions
-	const optionalFields: FieldParser<keyof LeafRecord>[] = [
-		["payloadCID", (val: string) => CID.parse(val)],
-		["blockNumber", (val: string) => parseInt(val, 10)],
-		["previousInsertBlockNumber", (val: string) => parseInt(val, 10)],
-		["mergeLeftHashes", (val: string) => JSON.parse(val).map((cidStr: string) => CID.parse(cidStr))],
-		["rootCidAfterInsert", (val: string) => CID.parse(val)],
-		["insertionTrail", async (val: string) => await stringToCidDataPairArray(val)],
-		["peaksWithHeightsAfterInsert", async (val: string) => await stringToPeakWithHeightArray(val)],
-	]
-
-	// Process each optional field
-	const result = {
-		account,
-		leafIndex: leafIndex,
-		payload,
-	} as LeafRecord
-
-	// Use Promise.all for parallel processing of optional fields
-	await Promise.all(
-		optionalFields.map(async ([fieldName, parser]) => {
-			const fieldValue = await storage.get(`${keyPrefix}:${fieldName}`)
-			if (fieldValue !== undefined) {
-				; (result as any)[fieldName] = await parser(fieldValue)
-			}
-		})
-	)
-
+	const result: LeafRecord = { account, leafIndex, payload }
+	async function readField<K extends keyof LeafRecord>(key: K, parse: (field: string) => LeafRecord[K] | Promise<LeafRecord[K]>) {
+		const field = await storage.get(`${keyPrefix}:${key}`)
+		if (field !== undefined) result[key] = await parse(field)
+	}
+	await Promise.all([
+		readField("payloadCID", CID.parse),
+		readField("blockNumber", (field) => parseInt(field, 10)),
+		readField("previousInsertBlockNumber", (field) => parseInt(field, 10)),
+		readField("mergeLeftHashes", (field) => JSON.parse(field).map(CID.parse)),
+		readField("rootCidAfterInsert", CID.parse),
+		readField("insertionTrail", stringToCidDataPairArray),
+		readField("peaksWithHeightsAfterInsert", stringToPeakWithHeightArray),
+	])
 	return result
 }

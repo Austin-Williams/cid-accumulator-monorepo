@@ -156,7 +156,7 @@ export function getLeafRecordFromNormalizedDataAppendedEvent(event: NormalizedDa
 
 export function getEthereumAddressAsLeftPaddedBytes32HexString(address: string): string {
 	// Remove 0x prefix if present
-	let clean = address.startsWith("0x") ? address.slice(2) : address
+	const clean = address.startsWith("0x") ? address.slice(2) : address
 	// Validate length (should be 40 hex chars for an address)
 	if (clean.length !== 40) throw new Error("Invalid Ethereum address length")
 	// Left pad with zeros to 64 chars (32 bytes)
@@ -164,18 +164,18 @@ export function getEthereumAddressAsLeftPaddedBytes32HexString(address: string):
 	return "0x" + padded
 }
 
-export function isIpldLink(obj: unknown): obj is CID<unknown, 113, 27, 1> {
+export function isIpldLink(obj: unknown): obj is CID {
 	return obj instanceof CID
 }
 
-export function isInternalNode(obj: unknown): obj is { L: CID<unknown, 113, 27, 1>; R: CID<unknown, 113, 27, 1> } {
+export function isInternalNode(obj: unknown): obj is { L: CID; R: CID } {
 	return (
 		typeof obj === "object" &&
 		obj !== null &&
 		"L" in obj &&
 		"R" in obj &&
-		(obj as any).L instanceof CID &&
-		(obj as any).R instanceof CID
+		isIpldLink(obj.L) &&
+		isIpldLink(obj.R)
 	)
 }
 

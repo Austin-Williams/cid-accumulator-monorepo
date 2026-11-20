@@ -99,8 +99,8 @@ export class JSMapAdapter implements Storage {
 			const data = await fs.readFile(database.filePath, "utf8")
 			const obj = JSON.parse(data)
 			database.store = new Map(Object.entries(obj))
-		} catch (err: any) {
-			if (err.code !== "ENOENT") throw err // Ignore file-not-found
+		} catch (err) {
+			if (!(err instanceof Error && "code" in err && err.code === "ENOENT")) throw err
 		}
 	}
 

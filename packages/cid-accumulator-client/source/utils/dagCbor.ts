@@ -23,9 +23,9 @@ function encodeUint(val: number, mt: number): Uint8Array {
 }
 
 function concatBytes(...chunks: Uint8Array[]): Uint8Array {
-	let len = chunks.reduce((sum, c) => sum + c.length, 0)
-	let out = new Uint8Array(len),
-		off = 0
+	const len = chunks.reduce((sum, c) => sum + c.length, 0)
+	const out = new Uint8Array(len)
+	let off = 0
 	for (const c of chunks) {
 		out.set(c, off)
 		off += c.length
@@ -33,7 +33,7 @@ function concatBytes(...chunks: Uint8Array[]): Uint8Array {
 	return out
 }
 
-function encode(val: any): DagCborEncodedData {
+function encode(val: unknown): DagCborEncodedData {
 	if (val === null) return new Uint8Array([0xf6]) as DagCborEncodedData
 	if (val === false) return new Uint8Array([0xf4]) as DagCborEncodedData
 	if (val === true) return new Uint8Array([0xf5]) as DagCborEncodedData
@@ -76,20 +76,19 @@ function encode(val: any): DagCborEncodedData {
 		return concatBytes(tag, encode(tagged)) as DagCborEncodedData
 	}
 	if (typeof val === "object") {
-		const keys = Object.keys(val)
-		const parts = keys.map((k) => concatBytes(encode(k), encode(val[k])))
-		return concatBytes(encodeUint(keys.length, MT_OBJECT), ...parts) as DagCborEncodedData
+		const parts = Object.entries(val).map(([key, value]) => concatBytes(encode(key), encode(value)))
+		return concatBytes(encodeUint(parts.length, MT_OBJECT), ...parts) as DagCborEncodedData
 	}
 	throw new Error("Unsupported type for dag-cbor encode")
 }
 
-function decode(buf: DagCborEncodedData): any {
+function decode(buf: DagCborEncodedData): unknown {
 	let off = 0
 	const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
 	function requireBytes(length: number): void {
 		if (length > buf.length - off) throw new Error("Unexpected end of data")
 	}
-	function _decode(): any {
+	function _decode(): unknown {
 		requireBytes(1)
 		const head = buf[off++]
 		const mt = head >> 5,
@@ -130,7 +129,7 @@ function decode(buf: DagCborEncodedData): any {
 			}
 			case MT_OBJECT: {
 				requireBytes(n * 2)
-				const obj: any = {}
+				const obj: Record<string, unknown> = {}
 				for (let i = 0; i < n; i++) {
 					const k = _decode()
 					if (typeof k !== "string") throw new Error("CBOR map keys must be strings")
@@ -162,6 +161,7 @@ function decode(buf: DagCborEncodedData): any {
 				}
 				throw new Error("Unsupported CBOR simple value: " + val)
 		}
+		throw new Error("Unsupported CBOR major type: " + mt)
 	}
 	const result = _decode()
 	if (off !== buf.length) throw new Error("Extra bytes after CBOR decode")

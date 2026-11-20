@@ -55,9 +55,12 @@ const highestLeafIndexNumber = await client.getHighestIndex()
 const i = 0
 const payloadHexString = await client.getPayload(i)
 
-// Get the payloads in the range [i, j] as hex strings
+// Get the available records from leaf index i through j, inclusive
 const j = 10
-const payloadsHexStringArray = await client.getPayloadInRange(i, j)
+const records = await client.getPayloadInRange(i, j)
+for (const { index, payload } of records) {
+  console.log(index, payload) // payload is hex without a 0x prefix
+}
 
 // Iterate over all payloads using the async iterator
 for await (const { index, payload } of client.iterate()) {

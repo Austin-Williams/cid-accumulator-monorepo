@@ -1,9 +1,10 @@
 import { keccak256 } from "../utils/hash.js"
-import type { DagCborEncodedData, IpldNode } from "./types.js"
+import type { DagCborEncodedData } from "./types.js"
 import { CID } from "./CID.js"
 import { hashToMultiformatsDigest, isInternalNode, isIpldLink } from "../utils/codec.js"
 import * as dagCbor from "../utils/dagCbor.js"
 import { fetchWithRedactedErrors } from "../utils/http.js"
+import { isPlainObject } from "../utils/objects.js"
 
 /** Append an IPFS endpoint while preserving base query parameters; request parameters take precedence. */
 export function buildIpfsUrl(baseUrl: string, endpoint: string, params: Record<string, string | undefined> = {}): URL {
@@ -22,7 +23,7 @@ export function buildIpfsUrl(baseUrl: string, endpoint: string, params: Record<s
  * @param endpoint - The IPFS API endpoint that was called
  * @returns The parsed response data
  */
-export async function handleIpfsResponse(res: Response, endpoint: string): Promise<any> {
+export async function handleIpfsResponse(res: Response, endpoint: string): Promise<unknown> {
 	if (!res.ok) {
 		const msg = await res.text().catch(() => res.statusText)
 		throw new Error(`IPFS ${endpoint} failed: ${res.status} ${msg}`)
@@ -46,7 +47,7 @@ export async function postIpfsBinary(
 	endpoint: string,
 	params: Record<string, string | undefined>,
 	body: Uint8Array
-): Promise<any> {
+): Promise<unknown> {
 	const url = buildIpfsUrl(baseUrl, endpoint, params)
 
 	const formData = new FormData()
@@ -72,7 +73,7 @@ export async function postIpfsEmpty(
 	baseUrl: string,
 	endpoint: string,
 	params: Record<string, string | undefined> = {}
-): Promise<any> {
+): Promise<unknown> {
 	const url = buildIpfsUrl(baseUrl, endpoint, params)
 
 	const res = await fetchWithRedactedErrors(url.toString(), { method: "POST" })
@@ -87,17 +88,19 @@ export async function postIpfsEmpty(
 export async function getRemotePinningServices(baseUrl: string): Promise<string[]> {
 	const res = await postIpfsEmpty(baseUrl, "pin/remote/service/ls", { arg: undefined })
 	if (
-		!Array.isArray(res?.RemoteServices) ||
-		!res.RemoteServices.every((service: any) => typeof service?.Service === "string" && service.Service.length > 0)
+		!isPlainObject(res) || !Array.isArray(res.RemoteServices) ||
+		!res.RemoteServices.every((service: unknown): service is { Service: string } =>
+			isPlainObject(service) && typeof service.Service === "string" && service.Service.length > 0
+		)
 	) {
 		throw new Error("[IPFS] Invalid pin/remote/service/ls response: expected a RemoteServices list")
 	}
-	return res.RemoteServices.map((service: { Service: string }) => service.Service)
+	return res.RemoteServices.map((service) => service.Service)
 }
 
 export async function verifyCIDAgainstDagCborEncodedData(
 	dagCborEncodedData: DagCborEncodedData,
-	expectedCID: CID<unknown, 113, 27, 1>
+	expectedCID: CID
 ): Promise<boolean> {
 	const hash = keccak256(dagCborEncodedData)
 	const multihash = hashToMultiformatsDigest(0x1b, hash) // 0x1b is the code for keccak-256
@@ -107,7 +110,7 @@ export async function verifyCIDAgainstDagCborEncodedData(
 
 export async function verifyCIDAgainstDagCborEncodedDataOrThrow(
 	dagCborEncodedData: DagCborEncodedData,
-	expectedCID: CID<unknown, 113, 27, 1>,
+	expectedCID: CID,
 	errorMessage?: string
 ): Promise<void> {
 	const hash = keccak256(dagCborEncodedData)
@@ -126,12 +129,12 @@ export async function verifyCIDAgainstDagCborEncodedDataOrThrow(
  * @param cid The root CID of the Merkle tree to resolve. Must be CID.
  * @return Promise<boolean> Resolves to true if the DAG is successfully resolved, false otherwise.
  */
-export async function resolveMerkleTreeFromLocalMap(cid: CID<unknown, 113, 27, 1>, cidStringToDataMap: Map<string, DagCborEncodedData>): Promise<boolean> {
+export async function resolveMerkleTreeFromLocalMap(cid: CID, cidStringToDataMap: Map<string, DagCborEncodedData>): Promise<boolean> {
 	const dagCborEncodedData: DagCborEncodedData | undefined = cidStringToDataMap.get(cid.toString())
 	if (!dagCborEncodedData) return false
 
 	// you either get (NOT DagCbor encoded) leaf data, a leaf's CID, or a (NOT DagCbor encoded) link node
-	const node: IpldNode = dagCbor.decode(dagCborEncodedData)
+	const node = dagCbor.decode(dagCborEncodedData)
 
 	if (node instanceof Uint8Array) {
 		// then we just got a leaf

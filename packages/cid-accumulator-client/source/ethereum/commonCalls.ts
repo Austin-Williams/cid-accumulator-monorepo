@@ -1,5 +1,6 @@
 import { contractPeakHexToMmrCid } from "../utils/codec.js"
 import { createLogger } from "../utils/logging.js"
+import { isPlainObject } from "../utils/objects.js"
 import { callContractView, ethRpcFetch } from "./ethRpcFetch.js"
 import { EthereumAddress } from "./EthereumAddress.js"
 import {
@@ -32,13 +33,13 @@ export async function getChainId(ethereumHttpRpcUrl: string): Promise<bigint> {
 	return BigInt(value)
 }
 
-function normalizeBlockHash(hash: string): string {
+function normalizeBlockHash(hash: unknown): string {
 	if (typeof hash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error("Invalid Ethereum block hash")
 	return hash.toLowerCase()
 }
 
-function parseChainBlock(value: any): ChainBlock {
-	if (!value || typeof value.number !== "string" || !/^0x[0-9a-fA-F]+$/.test(value.number)) {
+function parseChainBlock(value: unknown): ChainBlock {
+	if (!isPlainObject(value) || typeof value.number !== "string" || !/^0x[0-9a-fA-F]+$/.test(value.number)) {
 		throw new Error("Ethereum RPC returned a missing or invalid block")
 	}
 	const number = Number(value.number)
@@ -72,12 +73,17 @@ function logBlockFilter(fromBlock: number, toBlock: number, blockHash?: string):
 	return { blockHash: normalizeBlockHash(blockHash) }
 }
 
-function verifyLogBlocks(logs: RawEthLog[], blockNumber: number, blockHash?: string): void {
+function verifyLogBlocks(logs: unknown, blockNumber: number, blockHash?: string): asserts logs is RawEthLog[] {
 	if (!Array.isArray(logs)) throw new Error("Ethereum RPC returned an invalid log list")
-	if (blockHash === undefined) return
-	const expectedHash = normalizeBlockHash(blockHash)
+	const expectedHash = blockHash === undefined ? undefined : normalizeBlockHash(blockHash)
 	for (const log of logs) {
-		if (typeof log?.blockHash !== "string" || log.blockHash.toLowerCase() !== expectedHash || Number(log.blockNumber) !== blockNumber) {
+		if (
+			!isPlainObject(log) || typeof log.address !== "string" || typeof log.data !== "string" ||
+			!Array.isArray(log.topics) || !log.topics.every(topic => typeof topic === "string") ||
+			(typeof log.blockNumber !== "number" && typeof log.blockNumber !== "string") ||
+			(log.blockHash !== undefined && typeof log.blockHash !== "string")
+		) throw new Error("Ethereum RPC returned an invalid log")
+		if (expectedHash !== undefined && (log.blockHash?.toLowerCase() !== expectedHash || Number(log.blockNumber) !== blockNumber)) {
 			throw new Error("Ethereum RPC returned logs from a different block")
 		}
 	}
@@ -155,10 +161,10 @@ export async function getDataAppendedLogs(params: {
 		topics: [eventTopic],
 		...logBlockFilter(fromBlock, toBlock, blockHash),
 	}
-	const logs: RawEthLog[] = await ethRpcFetch(ethereumHttpRpcUrl, "eth_getLogs", [filter])
+	const logs = await ethRpcFetch(ethereumHttpRpcUrl, "eth_getLogs", [filter])
 	verifyLogBlocks(logs, fromBlock, blockHash)
 	for (const log of logs) {
-		if (typeof log?.address !== "string" || log.address.toLowerCase() !== contractAddress.toString()) {
+		if (log.address.toLowerCase() !== contractAddress.toString()) {
 			throw new Error("Ethereum RPC returned logs from a different accumulator")
 		}
 		const number = Number(log.blockNumber)

@@ -4,6 +4,9 @@
 	"workspaces": [
 		"packages/*"
 	],
+	"scripts": {
+		"lint": "npm run lint --workspace cid-accumulator-client"
+	},
 	"engines": {
 		"node": ">=26.13.1"
 	},

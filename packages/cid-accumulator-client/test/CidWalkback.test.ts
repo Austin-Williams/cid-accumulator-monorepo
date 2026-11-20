@@ -98,7 +98,8 @@ describe("historical CID reconstruction", { concurrency: false, timeout: 5000 },
 			}
 			t.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
 				const url = new URL(input instanceof Request ? input.url : input.toString())
-				const bytes = url.search ? undefined : availableBlocks.get(url.pathname.slice("/ipfs/".length))
+				if (url.searchParams.get("format") !== "raw") return new Response(null, { status: 404 })
+				const bytes = availableBlocks.get(url.pathname.slice("/ipfs/".length))
 				return bytes ? new Response(new Uint8Array(bytes)) : new Response(null, { status: 404 })
 			})
 			const storage = new InMemoryAdapter()
