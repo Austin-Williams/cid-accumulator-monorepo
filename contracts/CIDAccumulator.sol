@@ -5,14 +5,14 @@ import {ICIDAccumulator} from "./interfaces/ICIDAccumulator.sol";
 import {DagCborDigestLib} from "./libraries/DagCborDigestLib.sol";
 import {MetaBitsLib} from "./libraries/MetaBitsLib.sol";
 import {MerkleMountainRangeLib} from "./libraries/MerkleMountainRangeLib.sol";
-import {CidLib} from "./libraries/CidLib.sol";
+import {CIDLib} from "./libraries/CIDLib.sol";
 
 /// @title CIDAccumulator
 /// @notice An append-only CID accumulator.
 abstract contract CIDAccumulator is ICIDAccumulator {
 	using MetaBitsLib for uint256;
 	using MerkleMountainRangeLib for uint256;
-	using CidLib for bytes32;
+	using CIDLib for bytes32;
 
 	/// @custom:storage-location erc7201:cid-accumulator.storage.CIDAccumulator
 	/// @dev Keep the namespace and existing field order/types unchanged across upgrades.

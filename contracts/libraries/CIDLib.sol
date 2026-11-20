@@ -2,7 +2,7 @@
 pragma solidity 0.8.38;
 
 /// @notice Library for CIDv1 DAG-CBOR multihash encoding.
-library CidLib {
+library CIDLib {
 	bytes internal constant ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
 	/// @notice Encodes a 32-byte hash as a raw CIDv1 DAG-CBOR multihash.
 	/// @param hash The 32-byte hash (digest) to encode.
