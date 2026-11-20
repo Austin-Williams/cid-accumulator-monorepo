@@ -11,7 +11,6 @@ import {CIDLib} from "./libraries/CIDLib.sol";
 /// @notice An append-only CID accumulator.
 abstract contract CIDAccumulator is ICIDAccumulator {
 	using MetaBitsLib for uint256;
-	using MerkleMountainRangeLib for uint256;
 	using CIDLib for bytes32;
 
 	/// @custom:storage-location erc7201:cid-accumulator.storage.CIDAccumulator
@@ -45,26 +44,21 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 	/// @dev This function encodes the payload as a DAG-CBOR byte string before hashing; it is not a leaf digest.
 	function _appendDataToCIDAccumulator(bytes32 payload) internal {
 		CIDAccumulatorStorage storage state = _getAccumulatorStorage();
-		uint256 packedBits = state.merkleMountainRangeMetaBits;
-		uint256 currentBlock = block.number;
-		bytes32[32] storage peaks = state.peaks;
-		uint256 peakCount = packedBits.getPeakCount();
-		uint256 numMerges = packedBits.getLeafCount().mergeCount();
-		bytes32[] memory mergeLeftHashes = new bytes32[](numMerges);
-		bytes32 carryHash = DagCborDigestLib.encodeRawBytes(payload);
+		uint256 previousMetaBits = state.merkleMountainRangeMetaBits;
+		bytes32 leafHash = DagCborDigestLib.encodeRawBytes(payload);
+		(uint256 newPeakIndex, bytes32[] memory mergeLeftHashes) = MerkleMountainRangeLib.appendLeaf({
+			peaks: state.peaks,
+			leafHash: leafHash,
+			leafCount: previousMetaBits.getLeafCount(),
+			peakCount: previousMetaBits.getPeakCount()
+		});
 
-		for (uint256 i; i < numMerges; ) {
-			bytes32 topHash = peaks[peakCount - 1];
-			peakCount--;
-			carryHash = MerkleMountainRangeLib.mergeNodes(topHash, carryHash);
-			mergeLeftHashes[i] = topHash;
-			// prettier-ignore
-			unchecked {++i;}
-		}
-		// Only the resulting peak is written; consumed slots remain available for reuse.
-		peaks[peakCount] = carryHash;
-		_emitDataAppended(packedBits, payload, mergeLeftHashes);
-		state.merkleMountainRangeMetaBits = packedBits.updateMetaBits(peakCount, numMerges, currentBlock);
+		_emitDataAppended(previousMetaBits, payload, mergeLeftHashes);
+		state.merkleMountainRangeMetaBits = previousMetaBits.updateMetaBits(
+			newPeakIndex,
+			mergeLeftHashes.length,
+			block.number
+		);
 	}
 
 	/// @dev Emits the standard ABI encoding using temporary memory; no buffer escapes.

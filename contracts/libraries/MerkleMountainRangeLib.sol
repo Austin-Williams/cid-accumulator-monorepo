@@ -3,8 +3,36 @@ pragma solidity 0.8.38;
 
 import {DagCborDigestLib} from "./DagCborDigestLib.sol";
 
-/// @notice Library for MMR merge operations: counting carries, merging nodes, and bagging peaks.
+/// @notice Appends leaves to a Merkle mountain range and computes its root from the peaks.
 library MerkleMountainRangeLib {
+	/// @notice Appends a leaf digest by merging it with peaks of the same height.
+	/// @param peaks The first peakCount entries are the active peaks, ordered from highest to lowest.
+	/// @param leafHash DAG-CBOR digest of the new leaf.
+	/// @param leafCount Number of leaves before the append.
+	/// @param peakCount Number of active peaks before the append.
+	/// @return newPeakIndex Index of the resulting peak in the peaks array.
+	/// @return mergeLeftHashes Consumed peaks in merge order, starting with the lowest height.
+	function appendLeaf(
+		bytes32[32] storage peaks,
+		bytes32 leafHash,
+		uint256 leafCount,
+		uint256 peakCount
+	) internal returns (uint256 newPeakIndex, bytes32[] memory mergeLeftHashes) {
+		uint256 numMerges = mergeCount(leafCount);
+		mergeLeftHashes = new bytes32[](numMerges);
+		newPeakIndex = peakCount;
+		bytes32 peakHash = leafHash;
+
+		for (uint256 i; i < numMerges; ++i) {
+			--newPeakIndex;
+			bytes32 leftHash = peaks[newPeakIndex];
+			mergeLeftHashes[i] = leftHash;
+			peakHash = mergeNodes(leftHash, peakHash);
+		}
+		// The other consumed slots are outside the active peaks and can be reused.
+		peaks[newPeakIndex] = peakHash;
+	}
+
 	/// @notice Computes how many merges (carries) will occur for a given leaf index.
 	/// @param leafIndex Index of the leaf appended (0-based).
 	/// @return count Number of merge steps.
