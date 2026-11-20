@@ -33,18 +33,18 @@ export function getEventTopic(signature: string): string {
 export function parseGetStateResult(hex: string): [bigint, DagCborEncodedData[]] {
 	const data = hex.startsWith("0x") ? hex.slice(2) : hex
 	if (data.length < 64 + 32 * 64) throw new Error("Result too short for ABI-encoded tuple")
-	const mmrMetaBits = BigInt("0x" + data.slice(0, 64))
+	const merkleMountainRangeMetaBits = BigInt("0x" + data.slice(0, 64))
 	const peaks: DagCborEncodedData[] = []
 	for (let i = 0; i < 32; i++) {
 		const start = 64 + i * 64
 		const end = start + 64
 		peaks.push(hexStringToUint8Array(data.slice(start, end)) as DagCborEncodedData)
 	}
-	return [mmrMetaBits, peaks]
+	return [merkleMountainRangeMetaBits, peaks]
 }
 
-export function parseAccumulatorMetaBits(mmrMetaBits: bigint): AccumulatorMetadata {
-	const bits = mmrMetaBits
+export function parseAccumulatorMetaBits(merkleMountainRangeMetaBits: bigint): AccumulatorMetadata {
+	const bits = merkleMountainRangeMetaBits
 	const peakHeights: number[] = []
 	for (let i = 0; i < 32; i++) {
 		peakHeights.push(Number((bits >> BigInt(i * 5)) & 0x1fn))

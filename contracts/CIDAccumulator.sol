@@ -17,7 +17,7 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 	/// @custom:storage-location erc7201:cid-accumulator.storage.CIDAccumulator
 	/// @dev Keep the namespace and existing field order/types unchanged across upgrades.
 	struct CIDAccumulatorStorage {
-		uint256 mmrMetaBits;
+		uint256 merkleMountainRangeMetaBits;
 		bytes32[32] peaks;
 	}
 
@@ -31,13 +31,13 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 	/// @inheritdoc ICIDAccumulator
 	function getCIDAccumulatorState() external view override returns (uint256, bytes32[32] memory) {
 		CIDAccumulatorStorage storage state = _getAccumulatorStorage();
-		return (state.mmrMetaBits, state.peaks);
+		return (state.merkleMountainRangeMetaBits, state.peaks);
 	}
 
 	/// @inheritdoc ICIDAccumulator
 	function getCIDAccumulatorRootCIDString() external view override returns (string memory) {
 		CIDAccumulatorStorage storage state = _getAccumulatorStorage();
-		bytes32 root = MerkleMountainRangeLib.bagPeaks(state.mmrMetaBits.getPeakCount(), state.peaks);
+		bytes32 root = MerkleMountainRangeLib.bagPeaks(state.merkleMountainRangeMetaBits.getPeakCount(), state.peaks);
 		return root.encodeCidString();
 	}
 
@@ -45,7 +45,7 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 	/// @dev This function encodes the payload as a DAG-CBOR byte string before hashing; it is not a leaf digest.
 	function _appendDataToCIDAccumulator(bytes32 payload) internal {
 		CIDAccumulatorStorage storage state = _getAccumulatorStorage();
-		uint256 packedBits = state.mmrMetaBits;
+		uint256 packedBits = state.merkleMountainRangeMetaBits;
 		uint256 currentBlock = block.number;
 		bytes32[32] storage peaks = state.peaks;
 		uint256 peakCount = packedBits.getPeakCount();
@@ -64,7 +64,7 @@ abstract contract CIDAccumulator is ICIDAccumulator {
 		// Only the resulting peak is written; consumed slots remain available for reuse.
 		peaks[peakCount] = carryHash;
 		_emitDataAppended(packedBits, payload, mergeLeftHashes);
-		state.mmrMetaBits = packedBits.updateMetaBits(peakCount, numMerges, currentBlock);
+		state.merkleMountainRangeMetaBits = packedBits.updateMetaBits(peakCount, numMerges, currentBlock);
 	}
 
 	/// @dev Emits the standard ABI encoding using temporary memory; no buffer escapes.

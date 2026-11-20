@@ -125,8 +125,8 @@ export async function getCIDAccumulatorState(params: {
 		const code = await ethRpcFetch(ethereumHttpRpcUrl, "eth_getCode", [contractAddress.toString(), block])
 		if (code === "0x") return { meta: parseAccumulatorMetaBits(0n), peaks: [] }
 	}
-	const [mmrMetaBits, peaks] = parseGetStateResult(result)
-	const meta = parseAccumulatorMetaBits(mmrMetaBits)
+	const [merkleMountainRangeMetaBits, peaks] = parseGetStateResult(result)
+	const meta = parseAccumulatorMetaBits(merkleMountainRangeMetaBits)
 	return {
 		meta,
 		peaks: peaks.slice(0, meta.peakCount).map((peak, i) => ({
