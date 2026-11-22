@@ -67,6 +67,28 @@ export async function getBlockByHash(ethereumHttpRpcUrl: string, hash: string): 
 	return result
 }
 
+/** Read up to one BLOCKHASH window, newest parent first, in one simulated creation call. */
+export async function getAncestorHashes(url: string, head: Pick<ChainBlock, "number" | "hash">, count: number): Promise<string[]> {
+	if (!Number.isSafeInteger(head.number) || head.number < 0) throw new Error("Invalid block height")
+	if (!Number.isInteger(count) || count < 1 || count > Math.min(head.number, 256)) throw new Error("Invalid ancestor count")
+	const size = (count + 1) * 32
+	const data = "0x" + [
+		"43600052",              // mstore(0, number()) also gives the returned code a safe leading byte.
+		"6020",                  // offset = 32
+		"5b",                    // loop (byte 6)
+		"8060051c4303408152",    // mstore(offset, blockhash(number() - (offset >> 5)))
+		"602001",                // offset += 32
+		"61" + size.toString(16).padStart(4, "0") + "8110600657", // jump to loop while offset < size
+		"6000f3",                // return(0, offset)
+	].join("")
+	const result = await ethRpcFetch(url, "eth_call", [{ data }, { blockHash: normalizeBlockHash(head.hash), requireCanonical: true }])
+	if (typeof result !== "string" || result.length !== 2 + size * 2 || !/^0x[\da-f]+$/i.test(result) ||
+		BigInt("0x" + result.slice(2, 66)) !== BigInt(head.number)) throw new Error("RPC returned invalid ancestor data")
+	const hashes = result.slice(66).match(/.{64}/g)!.map(word => "0x" + word.toLowerCase())
+	if (hashes.some(hash => /^0x0+$/.test(hash))) throw new Error("RPC returned an unavailable ancestor hash")
+	return hashes
+}
+
 function logBlockFilter(fromBlock: number, toBlock: number, blockHash?: string): object {
 	if (blockHash === undefined) return { fromBlock: toHexBlock(fromBlock), toBlock: toHexBlock(toBlock) }
 	if (fromBlock !== toBlock) throw new Error("A block hash log query must identify a single block")

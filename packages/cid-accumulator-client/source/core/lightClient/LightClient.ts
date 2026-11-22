@@ -1,7 +1,12 @@
 import { DataClient } from "../dataClient/DataClient.js"
 import { createLogger } from "../../utils/logging.js"
+import { insertionLogs, resolveRootSnapshot, storeRootSnapshot } from "./rootSnapshot.js"
+import { getLeafRecordFromNormalizedDataAppendedEvent, uint8ArrayToHexString } from "../../utils/codec.js"
+import { ChainChangedError } from "../../services/ChainState.js"
+import type { AccumulatorStorageAdapter } from "../../storage/adapters/AccumulatorStorageAdapter.js"
+import type { LeafRecord } from "../../mmr/types.js"
 
-import type { DataClientDependencies } from "../dataClient/DataClient.types.js"
+import type { DataClientDependencies, RootSnapshot } from "../dataClient/DataClient.types.js"
 import type { LifecycleComponent } from "../../types/common.js"
 
 export class LightClient extends DataClient implements LifecycleComponent {
@@ -14,8 +19,13 @@ export class LightClient extends DataClient implements LifecycleComponent {
 	private lifecycleGeneration = 0
 	private initializedComponents: LifecycleComponent[] = []
 	private unsubscribeFromEventCacheService?: () => void
+	private rootRead?: Promise<void>
+	private firstPoll?: Promise<void>
+	private firstPollTimer?: ReturnType<typeof setTimeout>
+	private rootController = new AbortController()
+	private followingTip = false
 
-	constructor(dependencies: DataClientDependencies) {
+	constructor(dependencies: DataClientDependencies, private readonly startup?: { storage: AccumulatorStorageAdapter; intervalMs: number }) {
 		super(dependencies)
 		this.spinUpOrder = [
 			dependencies.storage,
@@ -24,6 +34,107 @@ export class LightClient extends DataClient implements LifecycleComponent {
 			dependencies.ipfsResolver,
 		]
 		this.logger = createLogger(`LightClient ${this.account.toString()}`)
+	}
+
+	override sync(): Promise<void> {
+		if (!this.startup || this.followingTip) return super.sync()
+		if (this.firstPoll) return this.firstPoll
+		if (this.rootRead) return this.rootRead
+		const generation = this.lifecycleGeneration
+		const storage = this.startup.storage
+		const signal = this.rootController.signal
+		this.syncing = true
+		this.completedInitialSync = false
+		const read = (async () => {
+			let state = await this.accumulatorContract.getCIDAccumulatorState()
+			for (let attempt = 0; ; attempt++) {
+				try {
+					const result = await resolveRootSnapshot(state, this.ipfsResolver, storage, insertionLogs(this.accumulatorContract), signal, this.rootSnapshot)
+					if (generation === this.lifecycleGeneration) {
+						this.rootSnapshot = result
+						this.completedInitialSync = true
+					}
+					return
+				} catch (error) {
+					if (signal.aborted) return
+					if (attempt >= 2) throw error
+					// A reorg can replace the numbered insertion block during walkback.
+					const latest = await this.accumulatorContract.getCIDAccumulatorState()
+					if (state.meta.leafCount === latest.meta.leafCount && state.meta.previousInsertBlockNumber === latest.meta.previousInsertBlockNumber &&
+						state.peaks.length === latest.peaks.length && state.peaks.every((p, i) => p.cid.equals(latest.peaks[i].cid))) throw error
+					state = latest
+				}
+			}
+		})().finally(() => {
+			if (this.rootRead === read) {
+				this.rootRead = undefined
+				this.syncing = false
+			}
+		})
+		this.rootRead = read
+		return read
+	}
+
+	// The first live poll bridges from the state returned by start() to a block-hash-pinned
+	// snapshot. Subsequent polls use the regular event cursor and reorganization recovery.
+	private scheduleFirstPoll(generation: number, baseline: RootSnapshot): void {
+		this.firstPollTimer = setTimeout(() => {
+			if (!this.isCurrentStartup(generation)) return
+			const poll = this.beginLiveTracking(generation, baseline)
+			this.firstPoll = poll
+			return poll.catch(error => {
+				if (!this.isCurrentStartup(generation)) return
+				this.logger.warn(`Could not start live tracking, retrying at the next poll: ${error}`)
+				this.scheduleFirstPoll(generation, baseline)
+			}).finally(() => { if (this.firstPoll === poll) this.firstPoll = undefined })
+		}, this.startup!.intervalMs)
+	}
+
+	private async beginLiveTracking(generation: number, previous: RootSnapshot): Promise<void> {
+		await this.rootRead
+		if (!this.isCurrentStartup(generation)) return
+		const signal = this.rootController.signal
+		const storage = this.startup!.storage
+		const chain = await this.chain
+		const tip = await chain.snapshot()
+		const state = await this.accumulatorContract.getCIDAccumulatorState({ blockHash: tip.block.hash, requireCanonical: true })
+		const getAppend = insertionLogs(this.accumulatorContract, async n =>
+			n > tip.finalizedBlockNumber ? (await chain.getBlock(tip, n)).hash : undefined)
+		const current = await resolveRootSnapshot(state, this.ipfsResolver, storage, getAppend, signal, this.rootSnapshot)
+		let common = current === previous ? current.payloads.length : 0
+		while (common < previous.payloads.length && common < current.payloads.length &&
+			previous.payloads[common] === current.payloads[common]) common++
+
+		const appends: LeafRecord[] = []
+		let block = state.meta.previousInsertBlockNumber
+		for (let i = current.payloads.length - 1; i >= common; i--) {
+			signal.throwIfAborted()
+			const event = await getAppend(block, i)
+			if (uint8ArrayToHexString(event.payload) !== current.payloads[i]) throw new ChainChangedError()
+			appends.push(getLeafRecordFromNormalizedDataAppendedEvent(event))
+			block = event.previousInsertBlockNumber
+		}
+		appends.reverse()
+		if (!this.isCurrentStartup(generation)) return
+		await chain.ensureCanonical(tip)
+		await chain.commit(tip, async () => {
+			if (!this.isCurrentStartup(generation)) return
+			const head = await storage.get("chain:head")
+			if (!head || JSON.parse(head).hash !== tip.block.hash) throw new ChainChangedError()
+			await chain.trackAccount(this.account, current.payloads.length, state.meta.previousInsertBlockNumber)
+			await storeRootSnapshot(storage, this.account, current, appends)
+			await storage.put("events:latestPolledBlock", String(tip.block.number))
+			if (!this.isCurrentStartup(generation)) return
+			await this.connectChainNotifications(chain)
+			if (!this.isCurrentStartup(generation)) return
+			this.rootSnapshot = undefined
+			this.followingTip = true
+			this.completedInitialSync = true
+			if (common < previous.payloads.length) {
+				this.notifySubscribers({ type: "rollback", account: this.account, firstInvalidLeafIndex: common, block: tip.block })
+			}
+			if (this.isCurrentStartup(generation)) this.eventCacheService.followFrom(tip.block.number, appends)
+		})
 	}
 
 	/**
@@ -123,8 +234,9 @@ export class LightClient extends DataClient implements LifecycleComponent {
 
 	private async startServices(generation: number): Promise<void> {
 		if (!this.isCurrentStartup(generation)) return
+		const pendingRootRead = this.rootRead
 		try {
-			await this.connectChainNotifications()
+			if (!this.startup) await this.connectChainNotifications()
 			if (!this.isCurrentStartup(generation)) return
 			// Connect before startup or initial sync can fetch and publish events.
 			this.unsubscribeFromEventCacheService = this.eventCacheService.subscribe((event) => {
@@ -136,6 +248,7 @@ export class LightClient extends DataClient implements LifecycleComponent {
 			if (!this.isCurrentStartup(generation)) return
 			this.logger.log("Starting services...")
 			for (const component of this.spinUpOrder) {
+				if (this.startup && component === this.eventCacheService) continue
 				try {
 					await component.start()
 				} finally {
@@ -147,13 +260,14 @@ export class LightClient extends DataClient implements LifecycleComponent {
 			// start syncing (blocking)
 			try {
 				// A retained sync can belong to a stopped run and an older chain snapshot.
-				if (this.syncing) {
-					try { await this.sync() } catch { /* Retry with this run's fresh snapshot below. */ }
+				if (this.syncing && !this.rootRead) {
+					try { await (this.startup ? super.sync() : this.sync()) } catch { /* Retry with this run's fresh snapshot below. */ }
 					if (!this.isCurrentStartup(generation)) return
 				}
-				this.completedInitialSync = false
-				await this.sync()
+				if (!pendingRootRead) this.completedInitialSync = false
+				await (pendingRootRead ?? this.sync())
 				if (!this.isCurrentStartup(generation)) return
+				if (this.startup) this.scheduleFirstPoll(generation, this.rootSnapshot!)
 			} catch (error) {
 				this.logger.error(`Failed to sync light client: ${error}`)
 				throw error
@@ -174,6 +288,13 @@ export class LightClient extends DataClient implements LifecycleComponent {
 	stop(): void {
 		// Invalidate even an init() whose first component is still pending.
 		this.lifecycleGeneration++
+		this.rootController.abort()
+		this.rootController = new AbortController()
+		clearTimeout(this.firstPollTimer)
+		this.firstPoll = undefined
+		if (this.rootRead) this.syncing = false
+		this.rootRead = undefined
+		this.followingTip = false
 		this.disconnectChain()
 		if (!this.running && this.initializedComponents.length === 0) {
 			this.logger.warn("Not running, nothing to stop")

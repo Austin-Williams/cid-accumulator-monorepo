@@ -10,8 +10,9 @@ export interface StorageConfig {
 /**
  * DB schema within one chain-ID/consumer-contract scope.
  * AccumulatorStorageAdapter prefixes the keys below and gives each scope its own coordination identity.
- * IpfsResolver storage:
+ * IpfsResolver storage (standalone light clients share verified CID blocks across scopes):
  * - "ipfs:block:{cidString}" - dagCborEncodedData
+ * - "lastPayloadScope:{address}" - local startup lookup hint, validated against the on-chain root before use
  *
  * EventCacheService storage:
  * - "events:latestPolledBlock" - latest fully processed polling block

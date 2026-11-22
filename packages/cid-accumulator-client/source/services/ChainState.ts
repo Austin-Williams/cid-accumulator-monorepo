@@ -195,22 +195,17 @@ export class ChainState {
 		if (baseline?.hash === latest.hash && oldFinalized?.hash === finalized.hash) return snapshot
 		// Do not overwrite saved ancestry until the complete candidate branch has been checked.
 		const staged: ChainBlock[] = []
-		let block = latest
 		const connectionHeight = Math.max(finalized.number, baseline?.number ?? finalized.number)
-		while (block.number > connectionHeight) {
-			staged.push(block)
-			const parent = await this.contract.getBlockByHash(block.parentHash)
-			if (parent.number !== block.number - 1) throw new Error("Invalid parent block height")
-			block = parent
-		}
+		for await (const block of this.branchAbove(latest, connectionHeight)) staged.push(block)
+		const connectionHash = staged[staged.length - 1]?.parentHash ?? latest.hash
 		if (baseline && baseline.number >= finalized.number) {
-			if (block.hash !== baseline.hash) throw new ChainChangedError()
+			if (connectionHash !== baseline.hash) throw new ChainChangedError()
 			const checkpointText = await this.storage.get(`chain:block:${finalized.number}`)
 			const checkpoint: ChainBlock | undefined =
 				baseline.number === finalized.number ? baseline : checkpointText ? JSON.parse(checkpointText) : undefined
 			if (checkpoint?.hash !== finalized.hash) throw new ChainChangedError()
 		} else {
-			if (block.hash !== finalized.hash) throw new ChainChangedError()
+			if (connectionHash !== finalized.hash) throw new ChainChangedError()
 			if (baseline && (await this.contract.getBlock(baseline.number)).hash !== baseline.hash)
 				throw new ChainChangedError()
 		}
@@ -229,14 +224,55 @@ export class ChainState {
 		return snapshot
 	}
 
+	/** A pinned EVM call returns adjacent hashes for up to 256 parents at a time. */
+	private async *branchAbove(head: ChainBlock, floor: number): AsyncGenerator<ChainBlock> {
+		let { number, hash } = head
+		let knownParent: string | undefined = head.parentHash
+		while (number > floor) {
+			const count = Math.min(number - floor, 256)
+			let parents: string[]
+			if (count === 1 && knownParent) {
+				parents = [knownParent]
+			} else {
+				try {
+					parents = await this.contract.getAncestorHashes({ number, hash }, count)
+				} catch {
+					// Some providers disable creation calls or prune historical EVM state.
+					// Headers are still sufficient to follow this exact branch.
+					let child = await this.contract.getBlockByHash(hash)
+					if (child.number !== number || (knownParent && child.parentHash !== knownParent)) throw new ChainChangedError()
+					while (child.number > floor) {
+						yield child
+						if (child.number === floor + 1) break
+						const parent = await this.contract.getBlockByHash(child.parentHash)
+						if (parent.number !== child.number - 1) throw new Error("Invalid parent block height")
+						child = parent
+					}
+					return
+				}
+			}
+			if (knownParent && parents[0] !== knownParent) throw new ChainChangedError()
+			for (const parentHash of parents) {
+				yield { number, hash, parentHash }
+				hash = parentHash
+				number--
+			}
+			knownParent = undefined
+		}
+	}
+
 	private async commonAncestor(head: ChainBlock, latest: ChainBlock): Promise<ChainBlock> {
 		const finalizedText = await this.storage.get("chain:finalized")
-		const floor = finalizedText ? (JSON.parse(finalizedText) as ChainBlock).number : 0
-		for (let number = Math.min(head.number, latest.number); number >= floor; number--) {
-			const saved = await this.storage.get(`chain:block:${number}`)
-			if (!saved) continue
-			const canonical = await this.contract.getBlock(number)
-			if (canonical.hash === (JSON.parse(saved) as ChainBlock).hash) return canonical
+		const finalized: ChainBlock | undefined = finalizedText ? JSON.parse(finalizedText) : undefined
+		const floor = finalized?.number ?? 0
+		const tip = head.number < latest.number ? await this.contract.getBlock(head.number) : latest
+		const savedTip = await this.storage.get(`chain:block:${tip.number}`)
+		if (savedTip && tip.number >= floor && (JSON.parse(savedTip) as ChainBlock).hash === tip.hash) return tip
+		if (tip.number === floor && tip.hash === finalized?.hash) return tip
+		for await (const block of this.branchAbove(tip, floor)) {
+			const saved = await this.storage.get(`chain:block:${block.number - 1}`)
+			const parent: ChainBlock | undefined = saved ? JSON.parse(saved) : block.number - 1 === floor ? finalized : undefined
+			if (parent && parent.hash === block.parentHash) return parent
 		}
 		throw new Error("No common ancestor above the finalized checkpoint")
 	}

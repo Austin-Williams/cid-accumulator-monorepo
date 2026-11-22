@@ -111,6 +111,14 @@ async function fixture(t: TestContext, startEmpty = false) {
 			(typeof block === "number" ? canonical(block) : block === "finalized" ? genesis : tip).block
 	)
 	t.mock.method(contract, "getBlockByHash", async (hash: string) => history.get(hash)!.block)
+	t.mock.method(contract, "getAncestorHashes", async (head: Pick<ChainBlock, "number" | "hash">, count: number) => {
+		let parent = history.get(head.hash)!.block.parentHash
+		return Array.from({ length: count }, () => {
+			const hash = parent
+			parent = history.get(hash)!.block.parentHash
+			return hash
+		})
+	})
 	t.mock.method(contract, "getCIDAccumulatorState", async (reference: BlockReference = "latest") => {
 		const selected = typeof reference === "object" ? history.get(reference.blockHash)! : tip
 		if (typeof reference === "object") assert.equal(canonical(selected.block.number).block.hash, reference.blockHash)

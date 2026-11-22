@@ -10,6 +10,35 @@ export class AccumulatorStorageAdapter implements Storage {
 
 	constructor(private readonly storage: Storage, private readonly contract: AccumulatorContract) {}
 
+	/** Remember where a live client keeps its indexed payloads. Startup may only use
+	 * this hint after checking the actual payloads against the freshly read contract root. */
+	async rememberPayloadCache(): Promise<void> {
+		await this.storage.put(`lastPayloadScope:${this.contract.address}`, await this.getPrefix())
+	}
+
+	async *payloadCaches(count: number): AsyncGenerator<AsyncIterable<string>> {
+		const account = `account:${this.contract.address}:leaf:`
+		const tipKey = account + (count - 1) + ":payload"
+		const hint = await this.storage.get(`lastPayloadScope:${this.contract.address}`)
+		if (hint && /^chain:\d+:accumulator:0x[0-9a-f]{40}:$/.test(hint) && hint.endsWith(`:accumulator:${this.contract.address}:`)) {
+			if (await this.storage.get(hint + tipKey) !== undefined) yield this.readPayloads(hint + account, count)
+			return
+		}
+		// Older databases have no scope hint. Only consider namespaces containing this tip.
+		const suffix = `:accumulator:${this.contract.address}:${tipKey}`
+		for await (const { key } of this.storage.iterate("chain:")) {
+			if (key.endsWith(suffix)) yield this.readPayloads(key.slice(0, -tipKey.length) + account, count)
+		}
+	}
+
+	private async *readPayloads(prefix: string, count: number): AsyncGenerator<string> {
+		for (let i = 0; i < count; i++) {
+			const payload = await this.storage.get(prefix + i + ":payload")
+			if (payload === undefined || !/^(?:[a-f\d]{2})*$/i.test(payload)) return
+			yield payload.toLowerCase()
+		}
+	}
+
 	private getPrefix(): Promise<string> {
 		this.prefix ??= this.contract.getChainId().then(chainId => {
 			if (this.chainId !== undefined && this.chainId !== chainId) {
@@ -52,7 +81,7 @@ export class AccumulatorStorageAdapter implements Storage {
 	async open(): Promise<void> { await this.getPrefix(); await this.storage.open() }
 	async close(): Promise<void> { await this.storage.close(); this.prefix = undefined }
 	persist(): Promise<void> { return this.storage.persist() }
-	async init(): Promise<void> { await this.getPrefix(); await this.storage.init() }
-	async start(): Promise<void> { await this.getPrefix(); await this.storage.start() }
+	async init(): Promise<void> { await this.storage.init() }
+	async start(): Promise<void> { await this.storage.start() }
 	stop(): void { this.prefix = undefined; this.storage.stop() }
 }

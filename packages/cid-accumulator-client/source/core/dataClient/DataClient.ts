@@ -9,7 +9,7 @@ import { MerkleMountainRange } from "../../mmr/MerkleMountainRange.js"
 
 import type { AccumulatorContract } from "../../ethereum/AccumulatorContract.js"
 import type { CID } from "../../ipfs/CID.js"
-import type { DataClientDependencies } from "./DataClient.types.js"
+import type { DataClientDependencies, RootSnapshot } from "./DataClient.types.js"
 import type { EthereumAddress } from "../../ethereum/EthereumAddress.js"
 import type { EventCacheService } from "../../services/EventCacheService.js"
 import type { AccumulatorMetadata, LeafRecord, PeakWithHeight } from "../../mmr/types.js"
@@ -46,6 +46,8 @@ export class DataClient {
 	private activeSnapshot?: ChainSnapshot
 	private unsubscribeRollback?: () => void
 	private connectionGeneration = 0
+	/** Verified, read-only payloads available before live chain tracking acquires the shared database. */
+	protected rootSnapshot?: RootSnapshot
 	public get chain(): Promise<ChainState> { return getChainState(this.storage, this.accumulatorContract) }
 	protected logger: Logger
 
@@ -193,6 +195,7 @@ export class DataClient {
 	 * @return The highest contiguous leaf index with data
 	 */
 	public async getHighestIndex(): Promise<number> {
+		if (this.rootSnapshot) return this.rootSnapshot.payloads.length - 1
 		return (await this.chain).read(() => this.getHighestContiguousLeafIndexWithData())
 	}
 
@@ -202,6 +205,7 @@ export class DataClient {
 	 * @returns The hex string (no 0x prefix) of the payload for leafIndex
 	 */
 	public async getPayload(leafIndex: number): Promise<string | undefined> {
+		if (this.rootSnapshot) return this.rootSnapshot.payloads[leafIndex]
 		return (await this.chain).read(() => this.readPayload(leafIndex))
 	}
 
@@ -220,10 +224,12 @@ export class DataClient {
 		fromIndex: number,
 		toIndex: number
 	): Promise<Array<{ index: number; payload: string }>> {
+		if (fromIndex < 0) throw new Error(`[DataClient] fromIndex must be >= 0, got ${fromIndex}`)
+		if (toIndex < fromIndex) throw new Error(`[DataClient] toIndex must be >= fromIndex, got ${toIndex} < ${fromIndex}`)
+		if (this.rootSnapshot) {
+			return this.rootSnapshot.payloads.slice(fromIndex, toIndex + 1).map((payload, i) => ({ index: fromIndex + i, payload }))
+		}
 		return (await this.chain).read(async () => {
-			if (fromIndex < 0) throw new Error(`[DataClient] fromIndex must be >= 0, got ${fromIndex}`)
-			if (toIndex < fromIndex) throw new Error(`[DataClient] toIndex must be >= fromIndex, got ${toIndex} < ${fromIndex}`)
-
 			const highestIndex = await this.getHighestContiguousLeafIndexWithData()
 			if (fromIndex > highestIndex) return [] // No data in this range
 
@@ -342,6 +348,10 @@ export class DataClient {
 	 * @return An async iterable that yields objects with leaf index and payload
 	 */
 	public async *iterate(): AsyncIterable<{ index: number; payload: string }> {
+		if (this.rootSnapshot) {
+			for (const [index, payload] of this.rootSnapshot.payloads.entries()) yield { index, payload }
+			return
+		}
 		const chain = await this.chain
 		const generation = chain.generation
 		const iterator = this.storedPayloads()
@@ -374,7 +384,7 @@ export class DataClient {
 	 * @notice Notify all subscribers about a new leaf record
 	 * @param leafRecord The new leaf record
 	 */
-	private notifySubscribers(event: DataClientEvent): void {
+	protected notifySubscribers(event: DataClientEvent): void {
 		for (const subscriber of this.subscribers) {
 			try {
 				subscriber(event)

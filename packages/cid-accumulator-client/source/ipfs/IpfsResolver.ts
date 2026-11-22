@@ -101,9 +101,12 @@ export class IpfsResolver implements LifecycleComponent {
 	 * @param cid The root CID of the Merkle tree to resolve. Must be CID.
 	 * @return An iterable of leaf payloads in order if the entire DAG was resolved, or undefined otherwise.
 	 */
-	public async fullyResolveCID(
-		cid: CID
-	): Promise<AsyncIterable<{ leafIndex: number; payload: Uint8Array }> | undefined> {
+	public async fullyResolveCID(cid: CID): Promise<AsyncIterable<{ leafIndex: number; payload: Uint8Array }> | undefined> {
+		return await this.resolveFromCacheOrCar(cid) ?? this.resolveFromIndividualBlocks(cid)
+	}
+
+	/** Resolve the entire DAG locally or with one trustless gateway request. */
+	public async resolveFromCacheOrCar(cid: CID): Promise<AsyncIterable<{ leafIndex: number; payload: Uint8Array }> | undefined> {
 		// Try to resolve the root CID using local storage only
 		const resolvedViaLocalStorage = await this.resolveMerkleTree(cid, true)
 		if (resolvedViaLocalStorage) {
@@ -116,19 +119,19 @@ export class IpfsResolver implements LifecycleComponent {
 		if (resolvedViaCarFile) {
 			this.logger.log(`Fetched all data for the root CID with a single call to the IPFS gateway for a CAR file.`)
 			return this.createPayloadsAsyncIterable(cid)
-		} else {
-			this.logger.warn(`Failed to fetch CAR file from IPFS gateway. Falling back to asking for individual IPFS blocks.`)
 		}
+		return undefined
+	}
 
-		// Try individual blocks if the cache and CAR download could not resolve the entire tree.
-		const resolved = await this.resolveMerkleTree(cid)
+	/** Resolve a DAG through raw block requests when a complete CAR is unavailable. */
+	public async resolveFromIndividualBlocks(cid: CID): Promise<AsyncIterable<{ leafIndex: number; payload: Uint8Array }> | undefined> {
+		return await this.resolveMerkleTree(cid) ? this.createPayloadsAsyncIterable(cid) : undefined
+	}
 
-		if (!resolved) return undefined
-
-		// Create an AsyncIterable that will decode and yield each leaf node
-		const payloadsAsyncIterable = this.createPayloadsAsyncIterable(cid)
-
-		return payloadsAsyncIterable
+	/** Keep locally reconstructed blocks available to later reads by their content address. */
+	public async cacheBlock(block: { cid: CID; dagCborEncodedData: DagCborEncodedData }): Promise<void> {
+		await verifyCIDAgainstDagCborEncodedDataOrThrow(block.dagCborEncodedData, block.cid, "Invalid local IPFS block")
+		await this.storage.put(`ipfs:block:${block.cid}`, uint8ArrayToHexString(block.dagCborEncodedData))
 	}
 
 	/**

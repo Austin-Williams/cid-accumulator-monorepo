@@ -26,4 +26,6 @@ export function mockChain(t: TestContext, contract: AccumulatorContract, storage
 		return blockHeader(typeof block === "number" ? block : block === "finalized" ? 0 : await contract.getBlockNumber())
 	})
 	t.mock.method(contract, "getBlockByHash", async (hash: string) => blockHeader(Number(BigInt(hash) - 1n)))
+	t.mock.method(contract, "getAncestorHashes", async (head: Pick<ChainBlock, "number" | "hash">, count: number) =>
+		Array.from({ length: count }, (_, i) => blockHeader(head.number - i - 1).hash))
 }

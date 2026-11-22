@@ -179,12 +179,13 @@ unsubscribe()
 await client.stop()
 ```
 
-On `client.start()`, the light client will:
-- Get the contract's latest root CID and attempt to resolve it via the IPFS gateway
-- If it resolves the root CID then it is fully synced and ready to go!
-- Otherwise it will fetch one past event via the ETH RPC to compute the prior root CID, and attempt to resolve it via the IPFS gateway.
-- It will continue "walking backwards" through prior root CIDs until it can resolve one via the IPFS gateway (or else fully syncs from events).
-- Once fully synced, it will poll for new events to stay updated and notify any subscribers.
+With the default lazy event loading, a fresh light client syncs a seeded tree in two requests.
+
+1. The client calls `getCIDAccumulatorState()` at `latest` and computes the root CID locally from the returned peaks.
+2. It requests the root as a CAR from the IPFS gateway. Once it verifies the tree and leaf count, `start()` resolves and the payloads are ready to read. An empty tree or a verified local copy needs only the contract call.
+3. If the gateway cannot supply the tree, the next request is `eth_getLogs` for the single block in `previousInsertBlockNumber`. The client uses the append event to reconstruct the previous root and repeats until it has every payload. Appends in the same block share a log request.
+
+Live tracking begins at the next polling interval. It reconciles the initial snapshot with the current chain, delivers any intervening changes, and follows new appends. Setting `lazyLoadEvents: false` explicitly requests historical event indexing during startup.
 
 Light clients can use a free-tier public Ethereum RPC provider (e.g., Infura, Alchemy, etc.) and a local or hosted IPFS HTTP gateway. With that in mind, the client has been optimized to minimize the number and "weight" of RPC calls made to the Ethereum RPCs and IPFS gateways. It also has built-in rate limiting with automatic backoff and retries to prevent getting blocked by the public RPCs and gateways.
 

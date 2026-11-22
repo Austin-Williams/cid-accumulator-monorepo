@@ -9,7 +9,6 @@ import { AccumulatorStorageAdapter } from "../../storage/adapters/AccumulatorSto
 
 import type { DataClientDependencies } from "../dataClient/DataClient.types.js"
 import type { LightClientConfigUserInput } from "./LightClient.types.js"
-import type { Storage } from "../../storage/interface.js"
 
 /**
  * Creates a light client for the configured inheriting accumulator contract.
@@ -32,12 +31,11 @@ export async function createLightClient(
 
 	// Create dependencies
 	const accumulatorContract = new AccumulatorContract(mergedConfig.accumulatorContractConfig)
-	const storage: Storage = new AccumulatorStorageAdapter(
-		new UniversalStorageAdapter(mergedConfig.nodeDbPath, mergedConfig.browserDbName),
-		accumulatorContract
-	)
+	const database = new UniversalStorageAdapter(mergedConfig.nodeDbPath, mergedConfig.browserDbName)
+	const storage = new AccumulatorStorageAdapter(database, accumulatorContract)
 	const eventCacheService = new EventCacheService(storage, accumulatorContract, mergedConfig.eventCacheServiceConfig)
-	const ipfsResolver: IpfsResolver = new IpfsResolver(storage, mergedConfig.ipfsResolverConfig)
+	// Verified CID-addressed blocks can be read before the RPC's chain ID is known.
+	const ipfsResolver = new IpfsResolver(database, mergedConfig.ipfsResolverConfig)
 
 	// Initialize services
 	const lightClientDependencies: DataClientDependencies = {
@@ -48,7 +46,9 @@ export async function createLightClient(
 	}
 
 	// Create the LightClient
-	const lightClient = new LightClient(lightClientDependencies)
+	const lightClient = new LightClient(lightClientDependencies, mergedConfig.eventCacheServiceConfig.lazyLoadEvents
+		? { storage, intervalMs: mergedConfig.eventCacheServiceConfig.pollingIntervalMs }
+		: undefined)
 
 	return lightClient
 }

@@ -107,19 +107,36 @@ export class EventCacheService implements LifecycleComponent {
 			// Catch up before downstream services begin pinning the restarted clients.
 			await this.pollForNewEvents(currentBlock, generation)
 			if (!this.isCurrentPoll(generation)) return
-			this.logger.log("Starting polling")
-			let activePoll: Promise<void> | undefined
-			this.pollingInterval = setInterval(() => {
-				if (!this.isCurrentPoll(generation)) return
-				activePoll ??= this.pollForNewEvents(undefined, generation)
-					.catch((error: Error) => this.logger.error(`Error polling for events: ${error}`))
-					.finally(() => { activePoll = undefined })
-				return activePoll
-			}, this.pollingIntervalMs)
+			this.schedulePolls(generation)
 		} catch (error) {
 			if (generation === this.pollingGeneration) this.isPolling = false
 			throw error
 		}
+	}
+
+	/** Called inside the chain commit that installs a verified snapshot and saves its cursor. */
+	public followFrom(blockNumber: number, appends: LeafRecord[]): void {
+		this.stop()
+		this.announcedEvents.clear()
+		this.setPollingCursor(blockNumber)
+		this.isPolling = true
+		this.schedulePolls(++this.pollingGeneration)
+		for (const record of appends) {
+			if (!this.isPolling) break
+			this.notifySubscribers(record)
+		}
+	}
+
+	private schedulePolls(generation: number): void {
+		this.logger.log("Starting polling")
+		let activePoll: Promise<void> | undefined
+		this.pollingInterval = setInterval(() => {
+			if (!this.isCurrentPoll(generation)) return
+			activePoll ??= this.pollForNewEvents(undefined, generation)
+				.catch((error: Error) => this.logger.error(`Error polling for events: ${error}`))
+				.finally(() => { activePoll = undefined })
+			return activePoll
+		}, this.pollingIntervalMs)
 	}
 
 	/**

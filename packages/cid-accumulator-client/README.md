@@ -96,20 +96,21 @@ unsubscribe()
 await client.stop();
 ```
 
-When you call `client.start()`, the light client will:
-- Retrieve the contract's latest root CID and attempt to resolve it via the IPFS gateway.
-- If it resolves the root CID, it is fully synced and ready to go!
-- Otherwise, it will fetch the previous event via the Ethereum RPC to compute the prior root CID and attempt to resolve it via the IPFS gateway.
-- It will continue "walking backwards" through prior root CIDs until it can resolve one via the IPFS gateway (or until it fully syncs from events).
-- Once fully synced, it will poll for new events to stay updated and notify any subscribers.
+With the default lazy event loading, a fresh light client syncs a seeded tree in two requests.
+
+1. The client calls `getCIDAccumulatorState()` at `latest` and computes the root CID locally from the returned peaks.
+2. It requests the root as a CAR from the IPFS gateway. Once it verifies the tree and leaf count, `start()` resolves and the payloads are ready to read. An empty tree or a verified local copy needs only the contract call.
+3. If the gateway cannot supply the tree, the next request is `eth_getLogs` for the single block in `previousInsertBlockNumber`. The client uses the append event to reconstruct the previous root and repeats until it has every payload. Appends in the same block share a log request.
+
+Live tracking begins at the next polling interval. It reconciles the initial snapshot with the current chain, delivers any intervening changes, and follows new appends. Setting `lazyLoadEvents: false` explicitly requests historical event indexing during startup.
 
 Subscriptions deliver `append` and `rollback` events in order. A rollback invalidates the contract's leaves at and above `firstInvalidLeafIndex`; applications maintaining their own index must discard that suffix before applying subsequent appends. Consumers doing asynchronous indexing should process these notifications in order.
 
 Subscriptions deliver live notifications. After starting or resuming a stopped client, await synchronization and initialize your application's index from the verified cached payloads. Another service sharing the database may already have repaired a reorganization while that client was stopped.
 
-The client tracks the current tip and uses finalized blocks only to prune rollback bookkeeping. RPC providers must support block-hash state/log queries and the `finalized` block tag. Reorganization recovery also rewinds event discovery and the seeder's MMR. Already verified CID-addressed IPFS blocks remain reusable.
+Live tracking uses the latest and finalized headers to detect reorganizations. It reads up to 256 ancestor hashes per simulated constructor `eth_call`, pinned to a known block hash. Providers that disable creation calls can supply individual headers instead. Live tracking also requires block-hash state and log queries and the `finalized` block tag. Recovery rewinds event discovery and the seeder's MMR.
 
-When a cache has no block-hash checkpoints, the client validates its cached prefix against finalized state and refetches unverified data. Interrupted recovery resumes before cached data is exposed. Services sharing a database coordinate recovery within one JavaScript context; independently running processes or browser tabs should use separate database files or names.
+The initial snapshot is verified against the root returned by the contract. The shared live index is scoped by chain ID and accumulator address. Before the client uses that index, it finishes any interrupted recovery and validates older caches that lack block-hash checkpoints. Services sharing a database coordinate recovery within one JavaScript context. Independently running processes or browser tabs should use separate database files or names.
 
 Light clients can use a free-tier public Ethereum RPC provider (e.g., Infura, Alchemy) and a local or hosted IPFS HTTP gateway. With that in mind, the client has been optimized to minimize the number and "weight" of RPC calls made to Ethereum and IPFS gateways. It also includes built-in rate limiting with automatic back-off and retries to prevent being blocked by public RPCs and gateways.
 
@@ -158,7 +159,7 @@ Both client factories accept separate storage settings for each environment:
 - `nodeDbPath` selects the database file in Node.js.
 - `browserDbName` selects the IndexedDB database in browsers. Its default is `cid-accumulator`. Clients on the same browser origin share storage when they use the same name.
 
-Cached data is separated by the RPC's reported chain ID and the application contract's address, so different chains and contracts can share a database. Different RPC providers for the same chain and contract share the same cache.
+The live account and event indexes use the RPC's chain ID and the application contract's address, so different chains and contracts can share a database. Different providers for the same chain and contract share those indexes. Light clients share verified IPFS blocks by CID.
 
 ## Seeder
 

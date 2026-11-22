@@ -1,6 +1,7 @@
 import { EthereumAddress } from "./EthereumAddress.js"
 import { RateLimiter } from "../utils/rateLimiter.js"
 import {
+	getAncestorHashes,
 	getBlock,
 	getBlockByHash,
 	getBlockNumber,
@@ -54,6 +55,10 @@ export class AccumulatorContract implements LifecycleComponent {
 
 	async getBlockByHash(hash: string): Promise<ChainBlock> {
 		return this.rateLimiter.execute(() => getBlockByHash(this.ethereumHttpRpcUrl, hash))
+	}
+
+	async getAncestorHashes(head: Pick<ChainBlock, "number" | "hash">, count: number): Promise<string[]> {
+		return this.rateLimiter.execute(() => getAncestorHashes(this.ethereumHttpRpcUrl, head, count))
 	}
 
 	async getCIDAccumulatorState(block: BlockReference = "latest"): Promise<{ meta: AccumulatorMetadata; peaks: PeakWithHeight[] }> {
